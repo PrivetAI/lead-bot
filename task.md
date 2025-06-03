@@ -23,7 +23,7 @@
 – `GET /conversation/:leadId` → возвращает все сообщения из conversations по заданному leadId  
 **PostgreSQL Database**  
 Роль: хранение лидов, переписок, событий календаря  
-Порт: 5432  
+Порт: 5432
 Таблицы:  
 – `leads` (lead_id, amocrm_id, name, status, telegram_user_id, created_at, updated_at)  
 – `conversations` (msg_id, lead_id, telegram_user_id, message_text, timestamp, direction)  
@@ -57,49 +57,6 @@
 │       └── lead-processing.json  
 ├── task.md  
 └── wf.txt  
-```
-
-### Переменные окружения (.env)  
-**API Server**  
-```
-NODE_ENV=production  
-PORT=3000  
-```
-**PostgreSQL**  
-```
-DB_HOST=postgres  
-DB_PORT=5432  
-DB_NAME=leads_db  
-DB_USER=postgres  
-DB_PASSWORD=postgres_password  
-```
-**Redis**  
-```
-REDIS_HOST=redis  
-REDIS_PORT=6379  
-```
-**Интеграции**  
-```
-AMOCRM_API_KEY=mock_key_123  
-OPENAI_API_KEY=mock_openai_789  
-```
-**Telegram Userbot (Node.js)**  
-```
-TELEGRAM_BOT_TOKEN=123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11  
-```
-**Google Calendar (n8n)**  
-```
-GOOGLE_CALENDAR_EMAIL=seller@company.com  
-GOOGLE_CLIENT_ID=mock_client_id  
-GOOGLE_CLIENT_SECRET=mock_secret  
-GOOGLE_REFRESH_TOKEN=mock_refresh  
-```
-**n8n**  
-```
-N8N_BASIC_AUTH_ACTIVE=true  
-N8N_BASIC_AUTH_USER=admin  
-N8N_BASIC_AUTH_PASSWORD=password123  
-N8N_AI_OPENAI_API_KEY=mock_openai_789  
 ```
 
 ### docker-compose.yml (кратко)  
