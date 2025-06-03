@@ -1,6 +1,7 @@
 const express = require('express');
 const axios = require('axios');
 const db = require('../database/connection');
+const userbot = require('./userbot');
 
 const router = express.Router();
 
@@ -23,19 +24,22 @@ router.post('/send', async (req, res) => {
 
 router.post('/userbot', async (req, res) => {
   try {
-    const { chat_id, message, lead_id, message_type, calendar_actions } = req.body;
+    const { chat_id, message, lead_id } = req.body;
     
-    console.log(`Mock userbot: ${message_type} to chat ${chat_id}`);
+    if (!userbot.isConnected) {
+      return res.status(503).json({ error: 'Userbot not connected' });
+    }
     
-    await db.query(
-      'INSERT INTO conversations (lead_id, platform, direction, message_type, content, metadata) VALUES ($1, $2, $3, $4, $5, $6)',
-      [lead_id, 'telegram', 'outgoing', message_type, message, JSON.stringify({ chat_id, calendar_actions })]
-    );
-    
+    await userbot.sendMessage(chat_id, message, lead_id);
     res.json({ success: true, messageId: Date.now() });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
+router.get('/userbot/status', (req, res) => {
+  res.json({ connected: userbot.isConnected });
+});
+
 module.exports = router;
+

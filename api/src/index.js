@@ -4,6 +4,7 @@ const helmet = require('helmet');
 const db = require('./database/connection');
 const telegramRouter = require('./telegram/routes');
 const amocrmRouter = require('./amocrm/routes');
+const userbot = require('./telegram/userbot');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -32,6 +33,17 @@ app.get('/conversation/:leadId', async (req, res) => {
   }
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`API server running on port ${PORT}`);
-});
+async function startServer() {
+  try {
+    await userbot.initialize();
+  } catch (error) {
+    console.error('Failed to initialize userbot:', error);
+  }
+  
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`API server running on port ${PORT}`);
+  });
+}
+
+startServer();
+
