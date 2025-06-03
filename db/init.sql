@@ -29,7 +29,7 @@ GRANT CREATE ON DATABASE n8n TO n8n;
 GRANT ALL ON SCHEMA public TO leads_user;
 GRANT CREATE ON SCHEMA public TO leads_user;
 
--- Leads table
+-- Leads table (updated with AI fields)
 CREATE TABLE leads (
     id SERIAL PRIMARY KEY,
     amocrm_id INTEGER UNIQUE NOT NULL,
@@ -38,17 +38,29 @@ CREATE TABLE leads (
     email VARCHAR(255),
     status VARCHAR(50) DEFAULT 'новый',
     source VARCHAR(100),
+    budget VARCHAR(100),
+    product_interest TEXT,
+    notes TEXT,
+    ai_classification JSONB,
+    ai_score INTEGER,
+    pipeline_id INTEGER,
+    stage_id INTEGER,
+    responsible_user_id INTEGER,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Conversations table
+-- Conversations table (updated with metadata)
 CREATE TABLE conversations (
     id SERIAL PRIMARY KEY,
     lead_id INTEGER REFERENCES leads(id),
-    message_type VARCHAR(20) NOT NULL, -- 'incoming', 'outgoing'
+    platform VARCHAR(20) DEFAULT 'telegram',
+    direction VARCHAR(20) NOT NULL, -- 'incoming', 'outgoing'
+    message_type VARCHAR(50) NOT NULL, -- 'text', 'ai_response', 'meeting_proposal', 'note'
     content TEXT NOT NULL,
+    metadata JSONB,
     telegram_message_id INTEGER,
+    telegram_chat_id BIGINT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -65,23 +77,62 @@ CREATE TABLE calendar_events (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Meeting slots table (for tracking proposed slots)
+CREATE TABLE meeting_slots (
+    id SERIAL PRIMARY KEY,
+    lead_id INTEGER REFERENCES leads(id),
+    slot_data JSONB NOT NULL,
+    status VARCHAR(20) DEFAULT 'proposed', -- 'proposed', 'selected', 'expired'
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Indexes
 CREATE INDEX idx_leads_amocrm_id ON leads(amocrm_id);
 CREATE INDEX idx_leads_status ON leads(status);
+CREATE INDEX idx_leads_phone ON leads(phone);
+CREATE INDEX idx_leads_ai_score ON leads(ai_score);
 CREATE INDEX idx_conversations_lead_id ON conversations(lead_id);
+CREATE INDEX idx_conversations_platform ON conversations(platform);
+CREATE INDEX idx_conversations_created_at ON conversations(created_at);
 CREATE INDEX idx_calendar_events_lead_id ON calendar_events(lead_id);
+CREATE INDEX idx_calendar_events_start_time ON calendar_events(start_time);
+CREATE INDEX idx_meeting_slots_lead_id ON meeting_slots(lead_id);
+CREATE INDEX idx_meeting_slots_status ON meeting_slots(status);
 
--- Insert mock data
-INSERT INTO leads (amocrm_id, name, phone, email, status, source) VALUES
-(1001, 'Иван Петров', '+66812345678', 'ivan@example.com', 'новый', 'Instagram'),
-(1002, 'Maria Garcia', '+66823456789', 'maria@example.com', 'в работе', 'Facebook'),
-(1003, 'John Smith', '+66834567890', 'john@example.com', 'назначена встреча', 'Website');
+-- Insert mock data with updated fields
+INSERT INTO leads (amocrm_id, name, phone, email, status, source, budget, product_interest, notes, pipeline_id, stage_id, responsible_user_id) VALUES
+(1001, 'Иван Петров', '+66812345678', 'ivan@example.com', 'новый', 'Instagram', '50000-100000', 'CRM система', 'Интересуется автоматизацией продаж', 1, 142, 1),
+(1002, 'Maria Garcia', '+66823456789', 'maria@example.com', 'в работе', 'Facebook', '100000-200000', 'Marketing automation', 'Нужна интеграция с существующими системами', 1, 143, 1),
+(1003, 'John Smith', '+66834567890', 'john@example.com', 'назначена встреча', 'Website', '200000+', 'Enterprise CRM', 'Крупная компания, нужно индивидуальное решение', 1, 144, 1);
+
+-- Insert sample conversations
+INSERT INTO conversations (lead_id, platform, direction, message_type, content, metadata, telegram_chat_id) VALUES
+(1, 'telegram', 'incoming', 'text', 'Здравствуйте! Интересует ваша CRM система. Можете рассказать подробнее?', '{"chat_id": 123456789}', 123456789),
+(1, 'telegram', 'outgoing', 'ai_response', 'Здравствуйте, Иван! Рад вашему интересу к нашей CRM системе. Она поможет автоматизировать ваши продажи и увеличить конверсию. Хотели бы назначить демонстрацию?', '{"chat_id": 123456789, "ai_generated": true}', 123456789),
+(2, 'telegram', 'incoming', 'text', 'Hi! I need marketing automation solution for my business', '{"chat_id": 987654321}', 987654321),
+(2, 'telegram', 'outgoing', 'ai_response', 'Hello Maria! Our marketing automation platform can definitely help streamline your campaigns. Would you like to schedule a demo to see how it works?', '{"chat_id": 987654321, "ai_generated": true}', 987654321);
 
 -- Set proper ownership
 ALTER TABLE leads OWNER TO leads_user;
 ALTER TABLE conversations OWNER TO leads_user;
 ALTER TABLE calendar_events OWNER TO leads_user;
+ALTER TABLE meeting_slots OWNER TO leads_user;
 
 -- Grant all privileges on tables to leads_user
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO leads_user;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO leads_user;
+
+-- Update function for leads table
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+   NEW.updated_at = CURRENT_TIMESTAMP;
+   RETURN NEW;
+END;
+$$ language 'plpgsql';
+
+CREATE TRIGGER update_leads_updated_at BEFORE UPDATE ON leads
+FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- Grant function execution to leads_user
+GRANT EXECUTE ON FUNCTION update_updated_at_column() TO leads_user;
