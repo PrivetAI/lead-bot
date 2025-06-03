@@ -1,0 +1,64 @@
+# Lead Processing System - .gitignore
+
+# Environment variables
+.env
+.env.local
+.env.production
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+*.log
+
+# Docker
+docker-compose.override.yml
+postgres_data/
+redis_data/
+n8n_data/
+
+# n8n
+n8n/data/
+n8n/.n8n/
+n8n/credentials/*.json
+!n8n/credentials/README.md
+
+# Database
+*.sql.gz
+dump.rdb
+
+# API
+api/uploads/
+api/logs/
+api/temp/
+
+# Secrets and credentials
+*.pem
+*.key
+*.crt
+*api-key*
+*token*
+*secret*
+google-*.json
+oauth-*.json
+
+# IDEs
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build
+build/
+dist/
+coverage/
+
+# Cache
+.cache/
+cache/
+
+# Backup files
+*.bak
+*.backup
