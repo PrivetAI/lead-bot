@@ -6,15 +6,28 @@ CREATE DATABASE leads_db;
 CREATE USER n8n WITH PASSWORD 'n8n123';
 CREATE USER leads_user WITH PASSWORD 'leads123';
 
--- Grant privileges
+-- Grant privileges on databases
 GRANT ALL PRIVILEGES ON DATABASE n8n TO n8n;
 GRANT ALL PRIVILEGES ON DATABASE leads_db TO leads_user;
+
+-- Connect to n8n database and fix schema permissions
+\c n8n;
+
+-- Grant schema privileges for n8n user in n8n database
+GRANT ALL ON SCHEMA public TO n8n;
+GRANT CREATE ON SCHEMA public TO n8n;
+ALTER SCHEMA public OWNER TO n8n;
+
+-- Grant usage and create permissions
+GRANT USAGE ON SCHEMA public TO n8n;
+GRANT CREATE ON DATABASE n8n TO n8n;
 
 -- Switch to leads_db
 \c leads_db;
 
--- Grant schema privileges
+-- Grant schema privileges for leads_user in leads_db
 GRANT ALL ON SCHEMA public TO leads_user;
+GRANT CREATE ON SCHEMA public TO leads_user;
 
 -- Leads table
 CREATE TABLE leads (
@@ -64,7 +77,11 @@ INSERT INTO leads (amocrm_id, name, phone, email, status, source) VALUES
 (1002, 'Maria Garcia', '+66823456789', 'maria@example.com', 'в работе', 'Facebook'),
 (1003, 'John Smith', '+66834567890', 'john@example.com', 'назначена встреча', 'Website');
 
--- Set owner
+-- Set proper ownership
 ALTER TABLE leads OWNER TO leads_user;
 ALTER TABLE conversations OWNER TO leads_user;
 ALTER TABLE calendar_events OWNER TO leads_user;
+
+-- Grant all privileges on tables to leads_user
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO leads_user;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO leads_user;

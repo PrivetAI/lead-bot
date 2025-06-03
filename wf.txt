@@ -1,0 +1,290 @@
+{
+  "name": "Lead Processing AI Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "amocrm-webhook",
+        "options": {}
+      },
+      "id": "webhook-amocrm",
+      "name": "amoCRM Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "webhookId": "amocrm-lead-webhook"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "telegram-webhook",
+        "options": {}
+      },
+      "id": "webhook-telegram",
+      "name": "Telegram Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 500],
+      "webhookId": "telegram-message-webhook"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO leads (amocrm_id, name, phone, email, status, source, budget, product_interest, notes) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (amocrm_id) DO UPDATE SET name = $2, phone = $3, email = $4, status = $5, updated_at = NOW() RETURNING *",
+        "additionalFields": {
+          "mode": "transaction"
+        }
+      },
+      "id": "save-lead",
+      "name": "Save Lead to DB",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [460, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-leads-db",
+          "name": "PostgreSQL Leads DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO conversations (lead_id, platform, direction, message_type, content, metadata) VALUES ((SELECT id FROM leads WHERE amocrm_id = $1), $2, $3, $4, $5, $6) RETURNING *",
+        "additionalFields": {
+          "mode": "transaction"
+        }
+      },
+      "id": "save-conversation",
+      "name": "Save Conversation",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [460, 500],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-leads-db",
+          "name": "PostgreSQL Leads DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "gpt-4",
+        "options": {
+          "temperature": 0.3,
+          "maxTokens": 500
+        },
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "Ты эксперт по классификации лидов в B2B продажах. Анализируй информацию о лиде и определяй:\n1. Качество лида (1-10)\n2. Готовность к покупке (cold/warm/hot)\n3. Бюджет (estimated range)\n4. Интересы продукта\n5. Следующие действия\n\nОтвечай только JSON:\n{\n  \"score\": 8,\n  \"temperature\": \"warm\",\n  \"budget_range\": \"50000-100000\",\n  \"interests\": [\"CRM\", \"automation\"],\n  \"next_actions\": [\"schedule_demo\", \"send_materials\"],\n  \"priority\": \"high\",\n  \"reasoning\": \"Причина оценки\"\n}"
+            },
+            {
+              "role": "user",
+              "content": "Лид: {{ $json.name }}\nТелефон: {{ $json.phone }}\nEmail: {{ $json.email }}\nИсточник: {{ $json.source }}\nИнтерес: {{ $json.product_interest }}\nЗаметки: {{ $json.notes }}\nПоследнее сообщение: {{ $('save-conversation').item.json.content || 'Нет сообщений' }}"
+            }
+          ]
+        }
+      },
+      "id": "ai-classifier",
+      "name": "AI Lead Classifier",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.3,
+      "position": [680, 300],
+      "credentials": {
+        "openAiApi": {
+          "id": "openai-api-key",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "gpt-4",
+        "options": {
+          "temperature": 0.7,
+          "maxTokens": 800
+        },
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "Ты опытный менеджер по продажам CRM систем. Твоя задача:\n1. Анализировать сообщения клиентов\n2. Генерировать персональные ответы\n3. Предлагать встречи и демо\n4. Квалифицировать потребности\n\nСтиль общения: профессиональный, дружелюбный, ориентированный на решение проблем клиента.\n\nВсегда:\n- Задавай уточняющие вопросы\n- Предлагай конкретные решения\n- Указывай выгоды для бизнеса клиента\n- Предлагай следующие шаги (демо, встречу, материалы)\n\nОтвечай JSON:\n{\n  \"response\": \"Текст ответа клиенту\",\n  \"intent\": \"detected_intent\",\n  \"suggested_actions\": [\"action1\", \"action2\"],\n  \"calendar_needed\": true/false,\n  \"urgency\": \"low/medium/high\"\n}"
+            },
+            {
+              "role": "user",
+              "content": "Клиент: {{ $('save-conversation').item.json.content }}\n\nИнформация о лиде:\nИмя: {{ $('save-lead').item.json.name }}\nИнтерес: {{ $('save-lead').item.json.product_interest }}\nКлассификация AI: {{ $('ai-classifier').item.json.message.content }}\n\nИстория переписки: [получить из базы при необходимости]"
+            }
+          ]
+        }
+      },
+      "id": "ai-sales-agent",
+      "name": "AI Sales Agent",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.3,
+      "position": [680, 500],
+      "credentials": {
+        "openAiApi": {
+          "id": "openai-api-key",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ JSON.parse($('ai-sales-agent').item.json.message.content).calendar_needed }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-calendar-needed",
+      "name": "Calendar Needed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [900, 400]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://www.googleapis.com/calendar/v3/calendars/primary/events",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleCalendarOAuth2Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "timeMin",
+              "value": "={{ new Date().toISOString() }}"
+            },
+            {
+              "name": "timeMax",
+              "value": "={{ new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() }}"
+            },
+            {
+              "name": "singleEvents",
+              "value": "true"
+            },
+            {
+              "name": "orderBy",
+              "value": "startTime"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "get-calendar-events",
+      "name": "Get Calendar Events",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 300],
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "google-calendar-oauth",
+          "name": "Google Calendar OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Find available time slots for meetings\nconst events = $input.item.json.items || [];\nconst workingHours = { start: 9, end: 18 }; // 9 AM to 6 PM\nconst meetingDuration = 60; // 1 hour in minutes\n\n// Generate available slots for next 7 days\nconst availableSlots = [];\nconst now = new Date();\n\nfor (let day = 0; day < 7; day++) {\n  const currentDate = new Date(now);\n  currentDate.setDate(now.getDate() + day);\n  \n  // Skip weekends\n  if (currentDate.getDay() === 0 || currentDate.getDay() === 6) continue;\n  \n  for (let hour = workingHours.start; hour < workingHours.end; hour++) {\n    const slotStart = new Date(currentDate);\n    slotStart.setHours(hour, 0, 0, 0);\n    \n    const slotEnd = new Date(slotStart);\n    slotEnd.setMinutes(slotEnd.getMinutes() + meetingDuration);\n    \n    // Check if slot conflicts with existing events\n    const hasConflict = events.some(event => {\n      if (!event.start || !event.end) return false;\n      \n      const eventStart = new Date(event.start.dateTime || event.start.date);\n      const eventEnd = new Date(event.end.dateTime || event.end.date);\n      \n      return (slotStart < eventEnd && slotEnd > eventStart);\n    });\n    \n    if (!hasConflict && slotStart > now) {\n      availableSlots.push({\n        start: slotStart.toISOString(),\n        end: slotEnd.toISOString(),\n        display: slotStart.toLocaleString('ru-RU', {\n          timeZone: 'Asia/Bangkok',\n          weekday: 'long',\n          year: 'numeric',\n          month: 'long',\n          day: 'numeric',\n          hour: '2-digit',\n          minute: '2-digit'\n        })\n      });\n    }\n  }\n}\n\n// Return first 5 available slots\nreturn availableSlots.slice(0, 5).map((slot, index) => ({\n  json: {\n    slot_id: index + 1,\n    start_time: slot.start,\n    end_time: slot.end,\n    display_time: slot.display,\n    timezone: 'Asia/Bangkok'\n  }\n}));"
+            },
+        "id": "find-available-slots",
+        "name": "Find Available Slots",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [1340, 300]
+      },
+      {
+        "parameters": {
+          "model": "gpt-4",
+          "options": {
+            "temperature": 0.5,
+            "maxTokens": 400
+          },
+          "messages": {
+            "values": [
+              {
+                "role": "system",
+                "content": "Сгенерируй персональное предложение встречи для клиента. Используй доступные временные слоты и информацию о клиенте.\n\nОтвечай JSON:\n{\n  \"message\": \"Персональное сообщение с предложением времени встречи\",\n  \"suggested_slots\": [\"slot1\", \"slot2\", \"slot3\"],\n  \"meeting_type\": \"demo/consultation/presentation\"\n}"
+              },
+              {
+                "role": "user",
+                "content": "Клиент: {{ $('save-lead').item.json.name }}\nИнтерес: {{ $('save-lead').item.json.product_interest }}\nПоследнее сообщение: {{ $('save-conversation').item.json.content }}\n\nДоступные слоты:\n{{ $('find-available-slots').all().map(item => `${item.json.slot_id}. ${item.json.display_time}`).join('\\n') }}\n\nAI анализ: {{ $('ai-sales-agent').item.json.message.content }}"
+              }
+            ]
+          }
+        },
+        "id": "generate-meeting-proposal",
+        "name": "Generate Meeting Proposal",
+        "type": "@n8n/n8n-nodes-langchain.openAi",
+        "typeVersion": 1.3,
+        "position": [1560, 300],
+        "credentials": {
+          "openAiApi": {
+            "id": "openai-api-key",
+            "name": "OpenAI API"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "http://api:3000/telegram/userbot",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={\n  \"chat_id\": {{ $('save-conversation').item.json.metadata.chat_id }},\n  \"message\": {{ JSON.parse($('ai-sales-agent').item.json.message.content).response }},\n  \"lead_id\": {{ $('save-lead').item.json.id }},\n  \"message_type\": \"ai_response\"\n}",
+          "options": {}
+        },
+        "id": "send-telegram-message",
+        "name": "Send Telegram Message",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [1120, 500]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "http://api:3000/telegram/userbot",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={\n  \"chat_id\": {{ $('save-conversation').item.json.metadata.chat_id }},\n  \"message\": {{ JSON.parse($('generate-meeting-proposal').item.json.message.content).message }},\n  \"lead_id\": {{ $('save-lead').item.json.id }},\n  \"message_type\": \"meeting_proposal\",\n  \"meeting_slots\": {{ $('find-available-slots').all() }}\n}",
+          "options": {}
+        },
+        "id": "send-meeting-proposal",
+        "name": "Send Meeting Proposal",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [1780, 300]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "UPDATE leads SET ai_classification = $1, ai_score = $2, updated_at = NOW() WHERE id = $3 RETURNING *",
+          "additionalFields": {
+            "mode": "transaction"
+          }
+        },
+        "id": "update-lead-classification",
+        "name": "Update Lead Classification",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.4,
+        "position": [900, 300],
+        "credentials": {
+          "postgres": {
+            "
