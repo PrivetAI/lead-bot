@@ -1,0 +1,53 @@
+const express = require('express');
+const whatsappService = require('./service');
+const QRCode = require('qrcode');
+
+const router = express.Router();
+
+router.post('/send', async (req, res) => {
+  try {
+    const { wa_id, message, lead_id } = req.body;
+    
+    if (!whatsappService.isReady) {
+      return res.status(503).json({ error: 'WhatsApp not ready' });
+    }
+
+    await whatsappService.sendMessage(wa_id, message, lead_id);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get('/status', (req, res) => {
+  res.json({ 
+    ready: whatsappService.isReady,
+    hasQR: !!whatsappService.qrCode
+  });
+});
+
+router.get('/qr', async (req, res) => {
+  try {
+    if (!whatsappService.qrCode) {
+      return res.status(404).json({ error: 'No QR code available' });
+    }
+
+    const qrImage = await QRCode.toDataURL(whatsappService.qrCode);
+    res.json({ qr: qrImage });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/welcome', async (req, res) => {
+  try {
+    const { wa_id, lead_data } = req.body;
+    
+    await whatsappService.sendWelcomeMessage(wa_id, lead_data);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+module.exports = router;

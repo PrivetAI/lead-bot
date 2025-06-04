@@ -2,9 +2,9 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const db = require('./database/connection');
-const telegramRouter = require('./telegram/routes');
+const whatsappRouter = require('./whatsapp/routes');
 const amocrmRouter = require('./amocrm/routes');
-const userbot = require('./telegram/userbot');
+const whatsappService = require('./whatsapp/service');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -13,7 +13,7 @@ app.use(helmet());
 app.use(cors());
 app.use(express.json());
 
-app.use('/telegram', telegramRouter);
+app.use('/whatsapp', whatsappRouter);
 app.use('/amocrm', amocrmRouter);
 
 app.get('/health', (req, res) => {
@@ -35,9 +35,9 @@ app.get('/conversation/:leadId', async (req, res) => {
 
 async function startServer() {
   try {
-    await userbot.initialize();
+    await whatsappService.initialize();
   } catch (error) {
-    console.error('Failed to initialize userbot:', error);
+    console.error('Failed to initialize WhatsApp:', error);
   }
   
   app.listen(PORT, '0.0.0.0', () => {
@@ -46,4 +46,3 @@ async function startServer() {
 }
 
 startServer();
-
