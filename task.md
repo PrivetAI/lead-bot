@@ -28,9 +28,6 @@
 – `leads` (lead_id, amocrm_id, name, status, telegram_user_id, created_at, updated_at)  
 – `conversations` (msg_id, lead_id, telegram_user_id, message_text, timestamp, direction)  
 – `calendar_events` (event_id, lead_id, google_event_id, start_time, end_time, created_at)  
-**Redis Cache**  
-Роль: кэширование состояния n8n-Workflow, ответов Google Calendar, rate limiting  
-Порт: 6379  
 
 ### Структура каталогов  
 ```
@@ -64,13 +61,10 @@
 – образ: `postgres:13`  
 – монтирование `./db` → `/docker-entrypoint-initdb.d`  
 – порты: `5432:5432`  
-**redis**  
-– образ: `redis:6`  
-– порты: `6379:6379`  
 **api**  
 – сборка из `./api/Dockerfile`  
 – переменные окружения из `.env`  
-– зависимости: postgres, redis  
+– зависимости: postgres
 – порты: `3000:3000`  
 – монтирование `./api/src/sessions` → `/app/sessions`  
 **n8n**  
