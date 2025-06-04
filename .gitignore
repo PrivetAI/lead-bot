@@ -14,7 +14,6 @@ yarn-debug.log*
 # Docker
 docker-compose.override.yml
 postgres_data/
-redis_data/
 n8n_data/
 
 # n8n
@@ -25,7 +24,6 @@ n8n/credentials/*.json
 
 # Database
 *.sql.gz
-dump.rdb
 
 # API
 api/uploads/

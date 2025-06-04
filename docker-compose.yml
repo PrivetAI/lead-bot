@@ -28,7 +28,6 @@ services:
       - ./n8n/workflows:/tmp/workflows:ro
     depends_on:
       - postgres
-      - redis
     networks:
       - lead_network
 
@@ -46,8 +45,6 @@ services:
       - DB_NAME=leads_db
       - DB_USER=leads_user
       - DB_PASSWORD=leads123
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
       - AMOCRM_API_KEY=mock_key_123
       - TELEGRAM_API_ID=mock_api_id
       - TELEGRAM_API_HASH=mock_api_hash
@@ -57,7 +54,6 @@ services:
       - ./api/sessions:/app/sessions
     depends_on:
       - postgres
-      - redis
     networks:
       - lead_network
 
@@ -77,22 +73,9 @@ services:
     networks:
       - lead_network
 
-  redis:
-    image: redis:7-alpine
-    container_name: redis
-    restart: always
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    networks:
-      - lead_network
-
 volumes:
   n8n_data:
   postgres_data:
-  redis_data:
-
 
 networks:
   lead_network:

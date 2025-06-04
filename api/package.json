@@ -13,7 +13,6 @@
     "express": "^4.18.2",
     "helmet": "^8.1.0",
     "pg": "^8.11.3",
-    "redis": "^4.6.8",
     "telegram": "^2.22.2"
   },
   "devDependencies": {
