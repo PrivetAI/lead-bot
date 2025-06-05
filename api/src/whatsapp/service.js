@@ -7,94 +7,200 @@ class WhatsAppService {
     this.client = null;
     this.isReady = false;
     this.qrCode = null;
+    this.retryAttempts = 3;
+    this.retryDelay = 5000;
   }
 
   async initialize() {
-    this.client = new Client({
-      authStrategy: new LocalAuth({ clientId: 'lead-bot' }),
-      puppeteer: {
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
-      }
-    });
+    try {
+      console.log('Initializing WhatsApp client...');
+      
+      this.client = new Client({
+        authStrategy: new LocalAuth({ 
+          clientId: 'lead-bot',
+          dataPath: '/app/sessions'
+        }),
+        puppeteer: {
+          headless: true,
+          args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--no-zygote',
+            '--single-process',
+            '--disable-gpu'
+          ]
+        }
+      });
 
+      this.setupEventHandlers();
+      await this.client.initialize();
+      
+    } catch (error) {
+      console.error('Failed to initialize WhatsApp:', error);
+      throw error;
+    }
+  }
+
+  setupEventHandlers() {
     this.client.on('qr', (qr) => {
       this.qrCode = qr;
       console.log('WhatsApp QR code generated');
+      console.log('QR Code:', qr);
     });
 
     this.client.on('ready', () => {
       this.isReady = true;
       this.qrCode = null;
-      console.log('WhatsApp client ready');
+      console.log('WhatsApp client is ready!');
     });
 
-    this.client.on('message', (message) => {
-      this.handleIncomingMessage(message);
+    this.client.on('authenticated', () => {
+      console.log('WhatsApp client authenticated');
     });
 
-    await this.client.initialize();
+    this.client.on('auth_failure', (msg) => {
+      console.error('WhatsApp authentication failure:', msg);
+    });
+
+    this.client.on('disconnected', (reason) => {
+      console.log('WhatsApp client disconnected:', reason);
+      this.isReady = false;
+      // Попытка переподключения
+      setTimeout(() => this.reconnect(), 10000);
+    });
+
+    this.client.on('message', async (message) => {
+      await this.handleIncomingMessage(message);
+    });
+
+    this.client.on('message_create', async (message) => {
+      // Обработка исходящих сообщений для логирования
+      if (message.fromMe) {
+        await this.logOutgoingMessage(message);
+      }
+    });
+  }
+
+  async reconnect() {
+    console.log('Attempting to reconnect WhatsApp...');
+    try {
+      await this.client.destroy();
+      await this.initialize();
+    } catch (error) {
+      console.error('Reconnection failed:', error);
+      setTimeout(() => this.reconnect(), 30000);
+    }
   }
 
   async handleIncomingMessage(message) {
     try {
-      if (message.from === 'status@broadcast') return;
+      // Игнорируем статусные и групповые сообщения
+      if (message.from === 'status@broadcast' || message.isGroupMsg) return;
+
+      console.log('Incoming message from:', message.from, 'Content:', message.body);
 
       const contact = await message.getContact();
-      const chat = await message.getChat();
       
-      const messageData = {
+      // Проверяем, есть ли лид с таким номером
+      const leadResult = await db.query(
+        'SELECT * FROM leads WHERE wa_id = $1 OR phone = $2',
+        [message.from, contact.number]
+      );
+
+      let leadId = null;
+      if (leadResult.rows.length > 0) {
+        leadId = leadResult.rows[0].id;
+      }
+
+      // Сохраняем сообщение в БД
+      await this.saveMessage({
         wa_id: message.from,
         wa_phone: contact.number,
         message: message.body,
         message_type: message.type,
         timestamp: message.timestamp
-      };
+      }, 'incoming', leadId);
 
+      // Отправляем в n8n для обработки AI
       await this.sendToN8n({
-        ...messageData,
+        wa_id: message.from,
+        wa_phone: contact.number,
+        message: message.body,
+        lead_id: leadId,
         direction: 'incoming',
-        contact_name: contact.name || contact.pushname
+        contact_name: contact.name || contact.pushname,
+        timestamp: new Date().toISOString()
       });
 
-      await this.saveMessage(messageData, 'incoming');
     } catch (error) {
       console.error('Error handling WhatsApp message:', error);
     }
   }
 
-  async sendMessage(waId, message, leadId = null) {
+  async logOutgoingMessage(message) {
     try {
-      if (!this.isReady) {
-        throw new Error('WhatsApp client not ready');
-      }
+      const leadResult = await db.query(
+        'SELECT id FROM leads WHERE wa_id = $1',
+        [message.to]
+      );
 
-      await this.client.sendMessage(waId, message);
-
-      await this.sendToN8n({
-        wa_id: waId,
-        message,
-        lead_id: leadId,
-        direction: 'outgoing'
-      });
+      const leadId = leadResult.rows.length > 0 ? leadResult.rows[0].id : null;
 
       await this.saveMessage({
-        wa_id: waId,
-        message,
-        message_type: 'text'
+        wa_id: message.to,
+        message: message.body,
+        message_type: message.type,
+        timestamp: message.timestamp
       }, 'outgoing', leadId);
-
-      return { success: true };
     } catch (error) {
-      console.error('Error sending WhatsApp message:', error);
-      throw error;
+      console.error('Error logging outgoing message:', error);
+    }
+  }
+
+  async sendMessage(waId, message, leadId = null) {
+    if (!this.isReady) {
+      throw new Error('WhatsApp client not ready');
+    }
+
+    let attempts = 0;
+    while (attempts < this.retryAttempts) {
+      try {
+        // Форматируем номер если нужно
+        const chatId = waId.includes('@c.us') ? waId : `${waId}@c.us`;
+        
+        await this.client.sendMessage(chatId, message);
+        console.log(`Message sent to ${chatId}`);
+
+        // Сохраняем в БД
+        await this.saveMessage({
+          wa_id: chatId,
+          message,
+          message_type: 'text'
+        }, 'outgoing', leadId);
+
+        return { success: true };
+      } catch (error) {
+        attempts++;
+        console.error(`Attempt ${attempts} failed:`, error.message);
+        
+        if (attempts < this.retryAttempts) {
+          await new Promise(resolve => setTimeout(resolve, this.retryDelay));
+        } else {
+          throw error;
+        }
+      }
     }
   }
 
   async saveMessage(messageData, direction, leadId = null) {
     try {
       await db.query(
-        'INSERT INTO conversations (lead_id, platform, direction, message_type, content, metadata) VALUES ($1, $2, $3, $4, $5, $6)',
+        `INSERT INTO conversations 
+         (lead_id, platform, direction, message_type, content, metadata) 
+         VALUES ($1, $2, $3, $4, $5, $6)`,
         [
           leadId,
           'whatsapp',
@@ -109,26 +215,82 @@ class WhatsAppService {
         ]
       );
     } catch (error) {
-      console.error('Error saving message:', error);
+      console.error('Error saving message to DB:', error);
     }
   }
 
   async sendToN8n(data) {
     try {
-      await axios.post(`${process.env.N8N_BASE_URL || 'http://n8n:5678'}/webhook/whatsapp`, data);
+      const n8nUrl = process.env.N8N_WEBHOOK_URL || 'http://n8n:5678/webhook/whatsapp-incoming';
+      await axios.post(n8nUrl, data, {
+        headers: { 'Content-Type': 'application/json' },
+        timeout: 5000
+      });
+      console.log('Message sent to n8n workflow');
     } catch (error) {
-      console.error('Error sending to n8n:', error);
+      console.error('Error sending to n8n:', error.message);
     }
   }
 
   async sendWelcomeMessage(waId, leadData) {
-    const welcomeMessage = `Добро пожаловать, ${leadData.name}! 👋
+    const templates = {
+      default: `Здравствуйте, ${leadData.name}! 👋
 
-Спасибо за интерес к нашим решениям. Я ваш персональный помощник и готов ответить на любые вопросы.
+Спасибо за интерес к нашим AI-решениям для автоматизации бизнеса.
 
-Расскажите, пожалуйста, чем я могу помочь? Какие задачи вы хотели бы решить?`;
+Я ваш персональный консультант и готов помочь подобрать оптимальное решение для вашей компании.
 
-    await this.sendMessage(waId, welcomeMessage, leadData.id);
+Расскажите, пожалуйста:
+• Какие процессы вы хотели бы автоматизировать?
+• Сколько клиентов обрабатываете в месяц?
+• Есть ли у вас CRM-система?
+
+Буду рад ответить на любые вопросы! 🚀`,
+
+      instagram: `Привет, ${leadData.name}! 👋
+
+Видел, что вы интересовались нашими AI-ботами в Instagram.
+
+Отличный выбор! Наши боты помогают:
+✅ Отвечать клиентам 24/7
+✅ Не терять ни одной заявки
+✅ Экономить до 80% времени менеджеров
+
+Что вас больше всего интересует?`,
+
+      website: `Добрый день, ${leadData.name}!
+
+Благодарю за заявку на сайте! 
+
+Я изучил вашу анкету и готов предложить персональное решение.
+
+Когда вам будет удобно обсудить детали? Могу предложить:
+📅 Завтра в 15:00
+📅 Четверг в 11:00
+
+Или назовите удобное для вас время.`
+    };
+
+    const template = templates[leadData.source] || templates.default;
+    await this.sendMessage(waId, template, leadData.id);
+  }
+
+  async sendTyping(waId) {
+    try {
+      const chat = await this.client.getChatById(waId);
+      await chat.sendStateTyping();
+    } catch (error) {
+      console.error('Error sending typing state:', error);
+    }
+  }
+
+  async sendSeen(waId) {
+    try {
+      const chat = await this.client.getChatById(waId);
+      await chat.sendSeen();
+    } catch (error) {
+      console.error('Error sending seen state:', error);
+    }
   }
 }
 

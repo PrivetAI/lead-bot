@@ -1,12 +1,32 @@
 version: '3.8'
 
 services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres123
+      POSTGRES_DB: postgres
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - lead_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   n8n:
     image: n8nio/n8n:latest
     container_name: n8n
-    restart: always
-    entrypoint: [ "n8n", "start" ]
-
+    restart: unless-stopped
     ports:
       - "5678:5678"
     environment:
@@ -16,6 +36,7 @@ services:
       - N8N_HOST=0.0.0.0
       - N8N_PORT=5678
       - N8N_PROTOCOL=http
+      - N8N_WEBHOOK_URL=http://n8n:5678/webhook
       - DB_TYPE=postgresdb
       - DB_POSTGRESDB_HOST=postgres
       - DB_POSTGRESDB_PORT=5432
@@ -23,18 +44,23 @@ services:
       - DB_POSTGRESDB_USER=n8n
       - DB_POSTGRESDB_PASSWORD=n8n123
       - GENERIC_TIMEZONE=Asia/Bangkok
+      - NODE_FUNCTION_ALLOW_BUILTIN=*
+      - NODE_FUNCTION_ALLOW_EXTERNAL=*
+      - N8N_DISABLE_NGROK=true
     volumes:
       - n8n_data:/home/node/.n8n
-      - ./n8n/workflows:/tmp/workflows:ro
+      - ./n8n/workflows:/home/node/.n8n/workflows
+      - ./n8n/credentials:/home/node/.n8n/credentials
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     networks:
       - lead_network
 
   api:
     build: ./api
     container_name: api
-    restart: always
+    restart: unless-stopped
     ports:
       - "3000:3000"
     environment:
@@ -45,37 +71,40 @@ services:
       - DB_NAME=leads_db
       - DB_USER=leads_user
       - DB_PASSWORD=leads123
-      - AMOCRM_API_KEY=mock_key_123
-      - TELEGRAM_API_ID=mock_api_id
-      - TELEGRAM_API_HASH=mock_api_hash
-      - TELEGRAM_SESSION_STRING=mock_session
       - N8N_WEBHOOK_URL=http://n8n:5678/webhook
+      - AMOCRM_API_KEY=${AMOCRM_API_KEY:-mock_key_123}
+      - AMOCRM_DOMAIN=${AMOCRM_DOMAIN:-mockdomain.amocrm.ru}
     volumes:
       - ./api/sessions:/app/sessions
+      - ./api/logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - lead_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Опционально: Adminer для управления БД
+  adminer:
+    image: adminer:latest
+    container_name: adminer
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
     depends_on:
       - postgres
     networks:
       - lead_network
 
-  postgres:
-    image: postgres:15
-    container_name: postgres
-    restart: always
-    ports:
-      - "5432:5432"
-    environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres123
-      - POSTGRES_DB=postgres
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
-    networks:
-      - lead_network
-
 volumes:
-  n8n_data:
   postgres_data:
+  n8n_data:
 
 networks:
   lead_network:
