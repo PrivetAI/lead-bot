@@ -1,5 +1,6 @@
-const http = require('http');
-const { spawn } = require('child_process');
+// wait-for-ngrok.mjs
+import http from 'http';
+import { spawn } from 'child_process';
 
 const getNgrokUrl = () => {
   return new Promise((resolve) => {
@@ -23,17 +24,17 @@ const getNgrokUrl = () => {
 const waitForNgrok = async () => {
   console.log('[n8n] Waiting for ngrok tunnel...');
   let publicUrl = null;
-  
+
   while (!publicUrl) {
     publicUrl = await getNgrokUrl();
     if (!publicUrl) {
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
   }
-  
+
   console.log('[n8n] Ngrok URL:', publicUrl);
   process.env.N8N_WEBHOOK_URL = `${publicUrl}/webhook`;
-  
+
   spawn('n8n', ['start'], {
     stdio: 'inherit',
     env: process.env

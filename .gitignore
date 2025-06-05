@@ -29,6 +29,9 @@ n8n/credentials/*.json
 api/uploads/
 api/logs/
 api/temp/
+api/sessions/
+api/package-lock.json
+
 
 # Secrets and credentials
 *.pem
