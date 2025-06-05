@@ -7,11 +7,11 @@ const config = {
     port: process.env.DB_PORT || 5432,
     user: process.env.DB_USER || 'postgres',
     password: process.env.DB_PASSWORD || 'postgres',
-    database: process.env.DB_NAME || 'whatsapp_sales_automation',
+    database: process.env.DB_NAME || 'leads_db',
     
-    // Настройки пользователя для n8n
-    n8nUser: process.env.N8N_DB_USER || 'n8n_user',
-    n8nPassword: process.env.N8N_DB_PASSWORD || 'n8n_secure_password_123',
+    // Настройки пользователя для n8n (используем того же пользователя)
+    n8nUser: process.env.DB_USER || 'leads_user',
+    n8nPassword: process.env.DB_PASSWORD || 'leads123',
     
     // Настройки пула соединений
     pool: {
@@ -22,10 +22,7 @@ const config = {
     },
     
     // SSL настройки (для продакшн)
-    ssl: process.env.NODE_ENV === 'production' ? {
-        require: true,
-        rejectUnauthorized: false
-    } : false
+    ssl: process.env.NODE_ENV === 'production' ? false : false // Отключаем SSL для локального Docker
 };
 
 module.exports = config;

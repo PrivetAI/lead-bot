@@ -1,21 +1,29 @@
-const { Pool } = require('pg');
+// database/config.js
+require('dotenv').config();
 
-const pool = new Pool({
-  host: process.env.DB_HOST,
-  port: process.env.DB_PORT,
-  database: process.env.DB_NAME,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  max: 10,
-  idleTimeoutMillis: 30000,
-});
+const config = {
+    // Основные настройки подключения
+    host: process.env.DB_HOST || 'localhost',
+    port: process.env.DB_PORT || 5432,
+    user: process.env.DB_USER || 'postgres',
+    password: process.env.DB_PASSWORD || 'postgres',
+    database: process.env.DB_NAME || 'leads_db',
+    
+    // Настройки пользователя для n8n (используем того же пользователя)
+    n8nUser: process.env.DB_USER || 'leads_user',
+    n8nPassword: process.env.DB_PASSWORD || 'leads123',
+    
+    // Настройки пула соединений
+    pool: {
+        max: parseInt(process.env.DB_POOL_MAX) || 20,
+        min: parseInt(process.env.DB_POOL_MIN) || 0,
+        acquire: parseInt(process.env.DB_POOL_ACQUIRE) || 30000,
+        idle: parseInt(process.env.DB_POOL_IDLE) || 10000
+    },
+    
+    // SSL настройки (для продакшн)
+    ssl: process.env.NODE_ENV === 'production' ? false : false // Отключаем SSL для локального Docker
+};
 
-pool.on('connect', () => {
-  console.log('Connected to PostgreSQL database');
-});
-
-pool.on('error', (err) => {
-  console.error('PostgreSQL connection error:', err);
-});
-
-module.exports = pool;
+module.exports = config;
+EOF
