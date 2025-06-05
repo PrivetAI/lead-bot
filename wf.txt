@@ -1,291 +1,759 @@
 {
-  "name": "WhatsApp Lead Processing with AI",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "12345"
+  },
+  "name": "WhatsApp Sales Automation System",
   "nodes": [
     {
       "parameters": {
-        "httpMethod": "POST",
-        "path": "whatsapp-incoming",
+        "path": "amocrm-webhook",
         "options": {}
       },
-      "id": "webhook-whatsapp",
-      "name": "WhatsApp Incoming",
+      "id": "amocrm-webhook-node",
+      "name": "AmoCRM Webhook",
       "type": "n8n-nodes-base.webhook",
-      "typeVersion": 1,
-      "position": [220, 340],
-      "webhookId": "whatsapp-incoming-webhook"
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "amocrm-webhook-12345"
     },
     {
       "parameters": {
-        "httpMethod": "POST",
-        "path": "amocrm-lead",
-        "options": {}
-      },
-      "id": "webhook-amocrm",
-      "name": "amoCRM New Lead",
-      "type": "n8n-nodes-base.webhook",
-      "typeVersion": 1,
-      "position": [220, 140],
-      "webhookId": "amocrm-new-lead-webhook"
-    },
-    {
-      "parameters": {
-        "operation": "executeQuery",
-        "query": "SELECT *, (SELECT COUNT(*) FROM conversations WHERE lead_id = leads.id) as message_count FROM leads WHERE id = {{$json.lead_id}} OR wa_id = {{$json.wa_id}}",
-        "options": {}
-      },
-      "id": "get-lead-info",
-      "name": "Get Lead Info",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.4,
-      "position": [420, 340],
-      "credentials": {
-        "postgres": {
-          "id": "1",
-          "name": "Postgres Lead DB"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "resource": "chat",
-        "operation": "create",
-        "modelId": "gpt-4-turbo-preview",
-        "messages": {
-          "values": [
+        "conditions": {
+          "string": [
             {
-              "role": "system",
-              "content": "={{ $node['Get Prompts'].json.classifier_prompt }}"
+              "value1": "={{ $json.leads[0].name }}",
+              "operation": "isNotEmpty"
             },
             {
-              "role": "user", 
-              "content": "Информация о лиде:\n{{JSON.stringify($node['Get Lead Info'].json[0])}}\n\nПоследнее сообщение клиента: {{$json.message}}\n\nИстория диалога:\n{{$node['Get Conversation'].json.map(m => `${m.direction}: ${m.content}`).join('\\n')}}"
+              "value1": "={{ $json.leads[0].custom_fields_values?.find(field => field.field_name === 'Телефон')?.values[0]?.value }}",
+              "operation": "isNotEmpty"
             }
           ]
+        }
+      },
+      "id": "validate-lead-node",
+      "name": "Validate Lead Data",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract lead data from AmoCRM webhook\nconst leadData = $input.first().json.leads[0];\nconst customFields = leadData.custom_fields_values || [];\n\n// Find phone number\nconst phoneField = customFields.find(field => \n  field.field_name === 'Телефон' || field.field_code === 'PHONE'\n);\nconst phone = phoneField?.values[0]?.value || '';\n\n// Clean phone number\nconst cleanPhone = phone.replace(/[^\\d]/g, '');\n\n// Extract other fields\nconst companyField = customFields.find(field => field.field_name === 'Компания');\nconst businessTypeField = customFields.find(field => field.field_name === 'Тип бизнеса');\nconst employeesField = customFields.find(field => field.field_name === 'Количество сотрудников');\nconst hasCrmField = customFields.find(field => field.field_name === 'Есть CRM');\n\nreturn {\n  lead_id: leadData.id,\n  name: leadData.name || 'Новый лид',\n  phone: cleanPhone,\n  company_info: companyField?.values[0]?.value || '',\n  business_type: businessTypeField?.values[0]?.value || '',\n  employees_count: employeesField?.values[0]?.value || '',\n  has_crm: hasCrmField?.values[0]?.value || '',\n  status: 'new',\n  created_at: new Date().toISOString(),\n  whatsapp_number: cleanPhone.startsWith('7') ? cleanPhone : '7' + cleanPhone\n};"
+      },
+      "id": "extract-lead-node",
+      "name": "Extract Lead Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "schema": {
+          "__rl": true,
+          "value": "public",
+          "mode": "list"
         },
-        "options": {
-          "temperature": 0.7,
-          "responseFormat": {
-            "type": "json_object"
+        "table": {
+          "__rl": true,
+          "value": "leads",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "lead_id": "={{ $json.lead_id }}",
+            "name": "={{ $json.name }}",
+            "phone": "={{ $json.phone }}",
+            "company_info": "={{ $json.company_info }}",
+            "business_type": "={{ $json.business_type }}",
+            "employees_count": "={{ $json.employees_count }}",
+            "has_crm": "={{ $json.has_crm }}",
+            "status": "={{ $json.status }}",
+            "created_at": "={{ $json.created_at }}"
           }
         }
       },
-      "id": "ai-classifier",
-      "name": "AI Classifier",
-      "type": "@n8n/n8n-nodes-langchain.openAi",
-      "typeVersion": 1.3,
-      "position": [820, 240],
+      "id": "save-lead-node",
+      "name": "Save Lead to PostgreSQL",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [900, 220],
       "credentials": {
-        "openAiApi": {
-          "id": "2",
-          "name": "OpenAI"
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "PostgreSQL Main DB"
         }
       }
     },
     {
       "parameters": {
-        "resource": "chat",
-        "operation": "create",
-        "modelId": "gpt-4-turbo-preview",
-        "messages": {
-          "values": [
+        "method": "POST",
+        "url": "http://localhost:3000/api/send-message",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
             {
-              "role": "system",
-              "content": "={{ $node['Get Prompts'].json.sales_prompt }}"
-            },
-            {
-              "role": "user",
-              "content": "Профиль лида от классификатора:\n{{$node['AI Classifier'].json.message.content}}\n\nПоследнее сообщение: {{$node['WhatsApp Incoming'].json.message}}"
+              "name": "Content-Type",
+              "value": "application/json"
             }
           ]
         },
-        "options": {
-          "temperature": 0.8,
-          "responseFormat": {
-            "type": "json_object"
-          }
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "phone",
+              "value": "={{ $json.whatsapp_number }}"
+            },
+            {
+              "name": "message",
+              "value": "={{ `Здравствуйте, ${$json.name}! 👋\\n\\nМеня зовут Анна, я ваш персональный помощник. Вижу, что вы оставили заявку на нашем сайте.\\n\\nРасскажите, пожалуйста, с какой задачей к нам обратились? Какой результат хотели бы получить?` }}"
+            }
+          ]
         }
       },
-      "id": "ai-sales",
-      "name": "AI Sales Agent", 
-      "type": "@n8n/n8n-nodes-langchain.openAi",
-      "typeVersion": 1.3,
-      "position": [820, 440],
+      "id": "send-welcome-node",
+      "name": "Send Welcome WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "path": "whatsapp-userbot-webhook",
+        "options": {}
+      },
+      "id": "whatsapp-webhook-node",
+      "name": "WhatsApp Userbot Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 600],
+      "webhookId": "whatsapp-userbot-12345"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "is-message-check",
+              "leftValue": "={{ $json.message }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "isNotEmpty"
+              }
+            }
+          ]
+        }
+      },
+      "id": "validate-whatsapp-node",
+      "name": "Validate WhatsApp Message",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [460, 600]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract message data from userbot webhook\nconst data = $input.first().json;\n\n// Clean phone number (remove @ and other symbols)\nconst cleanPhone = data.from?.replace(/[@\\s-]/g, '') || '';\n\nreturn {\n  phone: cleanPhone,\n  message_text: data.message || '',\n  message_type: 'text',\n  contact_name: data.contact_name || data.pushname || '',\n  timestamp: data.timestamp || Date.now(),\n  message_id: data.id || Date.now().toString(),\n  chat_id: data.from || '',\n  is_group: data.isGroup || false\n};"
+      },
+      "id": "extract-whatsapp-node",
+      "name": "Extract WhatsApp Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 600]
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "schema": {
+          "__rl": true,
+          "value": "public",
+          "mode": "list"
+        },
+        "table": {
+          "__rl": true,
+          "value": "leads",
+          "mode": "list"
+        },
+        "where": {
+          "values": [
+            {
+              "column": "phone",
+              "condition": "equal",
+              "value": "={{ $json.phone }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "find-lead-node",
+      "name": "Find Lead in Database",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [900, 600],
       "credentials": {
-        "openAiApi": {
-          "id": "2",
-          "name": "OpenAI"
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "PostgreSQL Main DB"
         }
       }
     },
     {
       "parameters": {
-        "operation": "executeQuery", 
-        "query": "SELECT * FROM conversations WHERE lead_id = {{$node['Get Lead Info'].json[0].id}} ORDER BY created_at DESC LIMIT 20",
-        "options": {}
+        "operation": "insert",
+        "schema": {
+          "__rl": true,
+          "value": "public",
+          "mode": "list"
+        },
+        "table": {
+          "__rl": true,
+          "value": "chat_history",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "lead_id": "={{ $('Find Lead in Database').first().json.id }}",
+            "phone": "={{ $('Extract WhatsApp Data').first().json.phone }}",
+            "message_text": "={{ $('Extract WhatsApp Data').first().json.message_text }}",
+            "message_type": "={{ $('Extract WhatsApp Data').first().json.message_type }}",
+            "direction": "incoming",
+            "created_at": "={{ new Date().toISOString() }}"
+          }
+        }
       },
-      "id": "get-conversation",
-      "name": "Get Conversation",
+      "id": "save-message-node",
+      "name": "Save Message to Database",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
-      "position": [620, 340],
+      "position": [1120, 600],
       "credentials": {
         "postgres": {
-          "id": "1",
-          "name": "Postgres Lead DB"
+          "id": "postgres-credentials",
+          "name": "PostgreSQL Main DB"
         }
       }
     },
     {
       "parameters": {
         "conditions": {
-          "number": [
+          "string": [
             {
-              "value1": "={{$node['Get Lead Info'].json[0].message_count}}",
-              "operation": "larger",
-              "value2": 5
+              "value1": "={{ $('Find Lead in Database').first().json.classification_status }}",
+              "value2": "complete",
+              "operation": "equal"
             }
           ]
         }
       },
-      "id": "check-stage",
-      "name": "Check Stage",
+      "id": "check-classification-node",
+      "name": "Check Classification Status",
       "type": "n8n-nodes-base.if",
-      "typeVersion": 1,
-      "position": [620, 240]
+      "typeVersion": 2,
+      "position": [1340, 600]
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "http://api:3000/webhook/n8n",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_OPENAI_API_KEY"
+            }
+          ]
+        },
         "sendBody": true,
         "bodyParameters": {
           "parameters": [
             {
-              "name": "lead_id",
-              "value": "={{$node['Get Lead Info'].json[0].id}}"
+              "name": "model",
+              "value": "gpt-4"
             },
             {
-              "name": "wa_id", 
-              "value": "={{$json.wa_id}}"
+              "name": "messages",
+              "value": "={{ [ { \"role\": \"system\", \"content\": \"Ты AI-классификатор для определения потребностей клиентов. Твоя задача через естественный диалог определить: 1. Размер компании клиента 2. Предполагаемый бюджет проекта 3. Потребности и ожидания от сотрудничества 4. Срочность решения задачи. Важно: НЕ используй анкеты и структурированные вопросы. Веди живое общение, но мягко направляй разговор к получению нужной информации.\" }, { \"role\": \"user\", \"content\": $('Extract WhatsApp Data').first().json.message_text } ] }}"
             },
             {
-              "name": "message",
-              "value": "={{JSON.parse($node['AI Classifier'].json.message.content).message}}"
+              "name": "max_tokens",
+              "value": 500
             },
             {
-              "name": "action_type",
-              "value": "classified"
+              "name": "temperature",
+              "value": 0.7
             }
           ]
-        },
-        "options": {}
-      },
-      "id": "send-classifier-response",
-      "name": "Send Classifier Response",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [1020, 240]
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "http://api:3000/webhook/n8n",
-        "sendBody": true,
-        "bodyParameters": {
-          "parameters": [
-            {
-              "name": "lead_id",
-              "value": "={{$node['Get Lead Info'].json[0].id}}"
-            },
-            {
-              "name": "wa_id",
-              "value": "={{$node['WhatsApp Incoming'].json.wa_id}}" 
-            },
-            {
-              "name": "message",
-              "value": "={{JSON.parse($node['AI Sales Agent'].json.message.content).message}}"
-            },
-            {
-              "name": "action_type",
-              "value": "sales_response"
-            },
-            {
-              "name": "calendar_data",
-              "value": "={{JSON.parse($node['AI Sales Agent'].json.message.content).action.calendar_action}}"
-            }
-          ]
-        },
-        "options": {}
-      },
-      "id": "send-sales-response",
-      "name": "Send Sales Response",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [1020, 440]
-    },
-    {
-      "parameters": {
-        "operation": "executeQuery",
-        "query": "UPDATE leads SET ai_classification = {{JSON.stringify(JSON.parse($node['AI Classifier'].json.message.content).classification)}}, ai_score = {{JSON.parse($node['AI Classifier'].json.message.content).classification.score}}, classification_stage = 'in_progress', updated_at = NOW() WHERE id = {{$node['Get Lead Info'].json[0].id}}",
-        "options": {}
-      },
-      "id": "update-lead-classification",
-      "name": "Update Lead Classification",
-      "type": "n8n-nodes-base.postgres", 
-      "typeVersion": 2.4,
-      "position": [1220, 240],
-      "credentials": {
-        "postgres": {
-          "id": "1", 
-          "name": "Postgres Lead DB"
         }
-      }
+      },
+      "id": "ai-classifier-node",
+      "name": "AI Classifier",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1560, 500]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_OPENAI_API_KEY"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "gpt-4"
+            },
+            {
+              "name": "messages",
+              "value": "={{ [ { \"role\": \"system\", \"content\": \"Ты AI-продавец. Твоя задача - вести продажи и назначать встречи. У тебя есть вся информация о клиенте из предыдущего диалога. Фокусируйся на: 1. Презентации решений под потребности клиента 2. Работе с возражениями 3. Закрытии на встречу. Будь настойчивым, но тактичным.\" }, { \"role\": \"user\", \"content\": $('Extract WhatsApp Data').first().json.message_text } ] }}"
+            },
+            {
+              "name": "max_tokens",
+              "value": 500
+            },
+            {
+              "name": "temperature",
+              "value": 0.7
+            }
+          ]
+        }
+      },
+      "id": "ai-sales-node",
+      "name": "AI Sales Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1560, 700]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:3000/api/send-message",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "phone",
+              "value": "={{ $('Extract WhatsApp Data').first().json.phone }}"
+            },
+            {
+              "name": "message",
+              "value": "={{ $json.choices[0].message.content }}"
+            }
+          ]
+        }
+      },
+      "id": "send-ai-response-node",
+      "name": "Send AI Response",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1780, 600]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Detect meeting request keywords\nconst messageText = $('Extract WhatsApp Data').first().json.message_text.toLowerCase();\nconst aiResponse = $json.choices[0].message.content.toLowerCase();\n\nconst meetingKeywords = [\n  'встреча', 'встретиться', 'созвон', 'звонок', \n  'демо', 'презентация', 'да', 'согласен', \n  'подходит', 'договорились', 'записать'\n];\n\nconst needsMeeting = meetingKeywords.some(keyword => \n  messageText.includes(keyword) || aiResponse.includes(keyword)\n);\n\nreturn {\n  needs_meeting: needsMeeting,\n  client_message: messageText,\n  ai_response: aiResponse\n};"
+      },
+      "id": "detect-meeting-node",
+      "name": "Detect Meeting Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2000, 600]
     },
     {
       "parameters": {
         "conditions": {
           "boolean": [
             {
-              "value1": "={{JSON.parse($node['AI Sales Agent'].json.message.content).action.calendar_action.needed}}",
-              "value2": true
+              "value1": "={{ $json.needs_meeting }}",
+              "value2": true,
+              "operation": "equal"
             }
           ]
         }
       },
-      "id": "check-calendar-needed",
-      "name": "Calendar Needed?",
+      "id": "check-meeting-node",
+      "name": "Check Meeting Needed",
       "type": "n8n-nodes-base.if",
-      "typeVersion": 1,
-      "position": [1220, 440]
+      "typeVersion": 2,
+      "position": [2220, 600]
     },
     {
       "parameters": {
-        "resource": "event",
-        "operation": "create",
-        "calendar": {
-          "__rl": true,
-          "value": "primary",
-          "mode": "list"
+        "jsCode": "// Calculate next available meeting slot\nconst now = new Date();\nlet nextSlot = new Date(now);\n\n// If it's after 6 PM, schedule for next day\nif (now.getHours() >= 18) {\n  nextSlot.setDate(nextSlot.getDate() + 1);\n}\n\n// Set to 10 AM\nnextSlot.setHours(10, 0, 0, 0);\n\n// Skip weekends\nwhile (nextSlot.getDay() === 0 || nextSlot.getDay() === 6) {\n  nextSlot.setDate(nextSlot.getDate() + 1);\n}\n\nconst endTime = new Date(nextSlot.getTime() + 60 * 60 * 1000);\n\nreturn {\n  start_time: nextSlot.toISOString(),\n  end_time: endTime.toISOString(),\n  formatted_time: nextSlot.toLocaleString('ru-RU', {\n    weekday: 'long',\n    day: 'numeric',\n    month: 'long',\n    hour: '2-digit',\n    minute: '2-digit'\n  })\n};"
+      },
+      "id": "calculate-time-node",
+      "name": "Calculate Meeting Time",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2440, 500]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://www.googleapis.com/calendar/v3/calendars/primary/events",
+        "authentication": "oAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
         },
-        "summary": "={{`Демо для ${$node['Get Lead Info'].json[0].name}`}}",
-        "start": "={{JSON.parse($node['AI Sales Agent'].json.message.content).action.calendar_action.preferred_times[0]}}",
-        "end": "={{DateTime.fromISO(JSON.parse($node['AI Sales Agent'].json.message.content).action.calendar_action.preferred_times[0]).plus({minutes: 45}).toISO()}}",
-        "additionalFields": {
-          "description": "={{`Контакт: ${$node['Get Lead Info'].json[0].name}\\nТелефон: ${$node['Get Lead Info'].json[0].phone}\\nКомпания: ${JSON.parse($node['Get Lead Info'].json[0].ai_classification).company_size} сотрудников\\nБоли: ${JSON.parse($node['Get Lead Info'].json[0].ai_classification).pain_points.join(', ')}\\nРекомендуемое решение: ${JSON.parse($node['AI Sales Agent'].json.message.content).action.recommended_solution}`}}"
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "summary",
+              "value": "={{ 'Встреча с клиентом - ' + $('Find Lead in Database').first().json.name }}"
+            },
+            {
+              "name": "description",
+              "value": "={{ 'Встреча с лидом\\nТелефон: ' + $('Extract WhatsApp Data').first().json.phone }}"
+            },
+            {
+              "name": "start",
+              "value": "={{ { \"dateTime\": $('Calculate Meeting Time').first().json.start_time, \"timeZone\": \"Europe/Moscow\" } }}"
+            },
+            {
+              "name": "end",
+              "value": "={{ { \"dateTime\": $('Calculate Meeting Time').first().json.end_time, \"timeZone\": \"Europe/Moscow\" } }}"
+            }
+          ]
         }
       },
-      "id": "create-calendar-event",
+      "id": "create-event-node",
       "name": "Create Calendar Event",
-      "type": "n8n-nodes-base.googleCalendar",
-      "typeVersion": 1.1,
-      "position": [1420, 540],
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2440, 600],
       "credentials": {
-        "googleCalendarOAuth2Api": {
-          "id": "3",
-          "name": "Google Calendar"
+        "googleOAuth2Api": {
+          "id": "google-oauth-credentials",
+          "name": "Google OAuth2"
         }
       }
     },
     {
       "parameters": {
-        "jsCode": "return [\n  {\n    json: {\n      classifier_prompt: `Ты - опытный специалист по классификации лидов в B2B продажах AI-решений для автоматизации бизнеса...`, // Полный промпт из classifier-prompts.md\n      sales_prompt: `Ты - опытный менеджер по продажам AI-решений для автоматизации бизнеса...` // Полный промпт
+        "method": "POST",
+        "url": "http://localhost:3000/api/send-message",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "phone",
+              "value": "={{ $('Extract WhatsApp Data').first().json.phone }}"
+            },
+            {
+              "name": "message",
+              "value": "={{ `Отлично! Встреча назначена на ${$('Calculate Meeting Time').first().json.formatted_time}.\\n\\nВы получите приглашение на почту.\\n\\nДо встречи! 👋` }}"
+            }
+          ]
+        }
+      },
+      "id": "confirm-meeting-node",
+      "name": "Send Meeting Confirmation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2660, 600]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "schema": {
+          "__rl": true,
+          "value": "public",
+          "mode": "list"
+        },
+        "table": {
+          "__rl": true,
+          "value": "leads",
+          "mode": "list"
+        },
+        "where": {
+          "values": [
+            {
+              "column": "phone",
+              "condition": "equal",
+              "value": "={{ $('Extract WhatsApp Data').first().json.phone }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "meeting_scheduled",
+            "meeting_scheduled": true,
+            "meeting_time": "={{ $('Calculate Meeting Time').first().json.start_time }}",
+            "updated_at": "={{ new Date().toISOString() }}"
+          }
+        }
+      },
+      "id": "update-status-node",
+      "name": "Update Lead Status",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [2660, 700],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "PostgreSQL Main DB"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "AmoCRM Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate Lead Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Lead Data": {
+      "main": [
+        [
+          {
+            "node": "Extract Lead Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Lead Data": {
+      "main": [
+        [
+          {
+            "node": "Save Lead to PostgreSQL",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send Welcome WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WhatsApp Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate WhatsApp Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate WhatsApp Message": {
+      "main": [
+        [
+          {
+            "node": "Extract WhatsApp Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract WhatsApp Data": {
+      "main": [
+        [
+          {
+            "node": "Find Lead in Database",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Lead in Database": {
+      "main": [
+        [
+          {
+            "node": "Save Message to Database",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Message to Database": {
+      "main": [
+        [
+          {
+            "node": "Check Classification Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Classification Status": {
+      "main": [
+        [
+          {
+            "node": "AI Sales Agent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "AI Classifier",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Classifier": {
+      "main": [
+        [
+          {
+            "node": "Send AI Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Sales Agent": {
+      "main": [
+        [
+          {
+            "node": "Send AI Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send AI Response": {
+      "main": [
+        [
+          {
+            "node": "Detect Meeting Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Detect Meeting Request": {
+      "main": [
+        [
+          {
+            "node": "Check Meeting Needed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Meeting Needed": {
+      "main": [
+        [
+          {
+            "node": "Calculate Meeting Time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Meeting Time": {
+      "main": [
+        [
+          {
+            "node": "Create Calendar Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Calendar Event": {
+      "main": [
+        [
+          {
+            "node": "Send Meeting Confirmation",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Update Lead Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 2,
+  "updatedAt": "2025-06-06T12:00:00.000Z",
+  "versionId": "1"
+}

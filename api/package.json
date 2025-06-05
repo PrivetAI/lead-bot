@@ -1,24 +1,59 @@
 {
-  "name": "lead-processing-api",
+  "name": "whatsapp-sales-automation",
   "version": "1.0.0",
-  "main": "src/index.js",
+  "description": "s",
+  "main": "bot.js",
   "scripts": {
-    "start": "node src/index.js",
-    "dev": "nodemon src/index.js"
+    "start": "node bot.js",
+    "dev": "nodemon bot.js",
+    "db:init": "node scripts/init-database.js",
+    "db:reset": "node scripts/init-database.js --reset --force",
+    "db:test": "node scripts/init-database.js --test",
+    "setup": "npm install && npm run db:init",
+    "pm2:start": "pm2 start ecosystem.config.js",
+    "pm2:stop": "pm2 stop whatsapp-bot",
+    "pm2:restart": "pm2 restart whatsapp-bot",
+    "pm2:logs": "pm2 logs whatsapp-bot",
+    "pm2:delete": "pm2 delete whatsapp-bot",
+    "logs": "tail -f logs/combined.log",
+    "test": "jest",
+    "lint": "eslint .",
+    "format": "prettier --write ."
   },
   "dependencies": {
-    "axios": "^1.5.0",
-    "cors": "^2.8.5",
-    "dotenv": "^16.3.1",
-    "express": "^4.18.2",
-    "helmet": "^8.1.0",
-    "pg": "^8.11.3",
-    "qrcode": "^1.5.4",
+    "whatsapp-web.js": "^1.22.2",
     "qrcode-terminal": "^0.12.0",
-    "redis": "^4.6.8",
-    "whatsapp-web.js": "^1.23.0"
+    "express": "^4.18.2",
+    "axios": "^1.6.0",
+    "dotenv": "^16.3.1",
+    "pg": "^8.11.3",
+    "cors": "^2.8.5",
+    "helmet": "^7.1.0",
+    "morgan": "^1.10.0",
+    "compression": "^1.7.4",
+    "rate-limiter-flexible": "^4.0.1"
   },
   "devDependencies": {
-    "nodemon": "^3.0.1"
-  }
+    "nodemon": "^3.0.1",
+    "jest": "^29.7.0",
+    "eslint": "^8.55.0",
+    "prettier": "^3.1.0",
+    "supertest": "^6.3.3"
+  },
+  "engines": {
+    "node": ">=16.0.0",
+    "npm": ">=8.0.0"
+  },
+  "keywords": [
+    "whatsapp",
+    "automation",
+    "sales",
+    "ai",
+    "bot",
+    "n8n",
+    "crm",
+    "leads"
+  ],
+  "author": "Your Name",
+  "license": "MIT"
 }
