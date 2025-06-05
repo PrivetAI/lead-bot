@@ -1,6 +1,7 @@
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const axios = require('axios');
 const db = require('../database/connection');
+const qrcodeTerminal = require('qrcode-terminal');
 
 class WhatsAppService {
   constructor() {
@@ -14,6 +15,12 @@ class WhatsAppService {
   async initialize() {
     try {
       console.log('Initializing WhatsApp client...');
+      
+      // Проверяем, отключен ли WhatsApp
+      if (process.env.DISABLE_WHATSAPP === 'true') {
+        console.log('WhatsApp is disabled by environment variable');
+        return;
+      }
       
       this.client = new Client({
         authStrategy: new LocalAuth({ 
@@ -47,26 +54,40 @@ class WhatsAppService {
   setupEventHandlers() {
     this.client.on('qr', (qr) => {
       this.qrCode = qr;
-      console.log('WhatsApp QR code generated');
-      console.log('QR Code:', qr);
+      console.log('\n===========================================');
+      console.log('📱 WhatsApp QR Code Generated!');
+      console.log('Scan this QR code with WhatsApp on your phone:');
+      console.log('===========================================\n');
+      
+      // Генерируем QR-код в терминале
+      qrcodeTerminal.generate(qr, { small: true });
+      
+      console.log('\n===========================================');
+      console.log('Steps to connect:');
+      console.log('1. Open WhatsApp on your phone');
+      console.log('2. Go to Settings → Linked Devices');
+      console.log('3. Tap "Link a Device"');
+      console.log('4. Scan this QR code');
+      console.log('===========================================\n');
     });
 
     this.client.on('ready', () => {
       this.isReady = true;
       this.qrCode = null;
-      console.log('WhatsApp client is ready!');
+      console.log('\n✅ WhatsApp client is ready and connected!');
+      console.log('===========================================\n');
     });
 
     this.client.on('authenticated', () => {
-      console.log('WhatsApp client authenticated');
+      console.log('✅ WhatsApp client authenticated successfully');
     });
 
     this.client.on('auth_failure', (msg) => {
-      console.error('WhatsApp authentication failure:', msg);
+      console.error('❌ WhatsApp authentication failure:', msg);
     });
 
     this.client.on('disconnected', (reason) => {
-      console.log('WhatsApp client disconnected:', reason);
+      console.log('⚠️  WhatsApp client disconnected:', reason);
       this.isReady = false;
       // Попытка переподключения
       setTimeout(() => this.reconnect(), 10000);

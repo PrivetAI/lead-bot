@@ -22,6 +22,7 @@ app.use((req, res, next) => {
   next();
 });
 
+
 // Routes
 app.use('/whatsapp', whatsappRouter);
 app.use('/amocrm', amocrmRouter);
@@ -48,7 +49,6 @@ app.get('/health', async (req, res) => {
     });
   }
 });
-
 // API для получения истории разговора
 app.get('/conversation/:leadId', async (req, res) => {
   try {
@@ -178,27 +178,30 @@ app.use((req, res) => {
 // Start server
 async function startServer() {
   try {
-    // Инициализируем WhatsApp
-    console.log('Starting WhatsApp service...');
-    await whatsappService.initialize();
+    // Проверяем переменную окружения
+    if (process.env.DISABLE_WHATSAPP === 'true') {
+      console.log('⚠️  WhatsApp service is disabled by environment variable');
+    } else {
+      // Инициализируем WhatsApp
+      console.log('Starting WhatsApp service...');
+      await whatsappService.initialize();
+    }
     
     app.listen(PORT, '0.0.0.0', () => {
-      console.log(`API server running on port ${PORT}`);
-      console.log('Available endpoints:');
+      console.log(`\n🚀 API server running on port ${PORT}`);
+      console.log('📍 Available endpoints:');
       console.log('  GET  /health');
       console.log('  GET  /stats');
       console.log('  GET  /whatsapp/status');
-      console.log('  GET  /whatsapp/qr');
       console.log('  POST /whatsapp/send');
       console.log('  POST /amocrm/sync');
-      console.log('  POST /webhook/n8n');
+      console.log('  POST /webhook/n8n\n');
     });
   } catch (error) {
     console.error('Failed to start server:', error);
     process.exit(1);
   }
 }
-
 // Graceful shutdown
 process.on('SIGTERM', async () => {
   console.log('SIGTERM received, shutting down gracefully...');

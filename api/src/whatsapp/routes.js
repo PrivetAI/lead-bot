@@ -29,11 +29,53 @@ router.get('/status', (req, res) => {
 router.get('/qr', async (req, res) => {
   try {
     if (!whatsappService.qrCode) {
-      return res.status(404).json({ error: 'No QR code available' });
+      return res.status(404).json({ 
+        error: 'No QR code available',
+        hint: 'QR code appears after WhatsApp client initialization'
+      });
     }
 
     const qrImage = await QRCode.toDataURL(whatsappService.qrCode);
-    res.json({ qr: qrImage });
+    res.json({ 
+      qr: qrImage,
+      generated_at: whatsappService.qrGeneratedAt,
+      expires_in: '60 seconds' // WhatsApp QR обычно действует 60 секунд
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Добавьте новый эндпоинт для получения QR-кода в разных форматах
+router.get('/qr/:format', async (req, res) => {
+  try {
+    const { format } = req.params;
+    
+    if (!whatsappService.qrCode) {
+      return res.status(404).json({ error: 'No QR code available' });
+    }
+
+    switch (format) {
+      case 'png':
+        const buffer = await QRCode.toBuffer(whatsappService.qrCode);
+        res.set('Content-Type', 'image/png');
+        res.send(buffer);
+        break;
+        
+      case 'svg':
+        const svg = await QRCode.toString(whatsappService.qrCode, { type: 'svg' });
+        res.set('Content-Type', 'image/svg+xml');
+        res.send(svg);
+        break;
+        
+      case 'text':
+        res.set('Content-Type', 'text/plain');
+        res.send(whatsappService.qrCode);
+        break;
+        
+      default:
+        res.status(400).json({ error: 'Invalid format. Use: png, svg, or text' });
+    }
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

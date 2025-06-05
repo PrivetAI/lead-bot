@@ -21,7 +21,7 @@ COPY package*.json ./
 RUN npm install --production
 COPY . .
 RUN mkdir -p /app/sessions && chmod 755 /app/sessions
-
+RUN mkdir -p /app/public && chmod 755 /app/public
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 

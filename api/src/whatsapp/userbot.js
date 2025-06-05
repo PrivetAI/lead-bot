@@ -4,10 +4,15 @@ const axios = require('axios');
 const db = require('../database/connection');
 
 class TelegramUserbot {
-  constructor() {
-    this.client = null;
-    this.isConnected = false;
-  }
+ constructor() {
+  this.client = null;
+  this.isReady = false;
+  this.qrCode = null;
+  this.retryAttempts = 3;
+  this.retryDelay = 5000;
+  this.qrGeneratedAt = null; // Добавить для отслеживания времени генерации
+}
+
 
   async initialize() {
     const session = new StringSession(process.env.TELEGRAM_SESSION_STRING || '');
@@ -24,7 +29,17 @@ class TelegramUserbot {
     this.setupHandlers();
     console.log('Telegram Userbot connected');
   }
-
+  setupEventHandlers() {
+  this.client.on('qr', (qr) => {
+    this.qrCode = qr;
+    this.qrGeneratedAt = new Date();
+    console.log('WhatsApp QR code generated at:', this.qrGeneratedAt);
+    console.log('QR Code:', qr);
+    
+    // Автоматически выводим QR-код в консоль в виде ASCII
+    const qrcode = require('qrcode-terminal');
+    qrcode.generate(qr, { small: true });
+  })}
   setupHandlers() {
     this.client.addEventHandler(async (event) => {
       if (event.className === 'UpdateNewMessage' && event.message?.peerId?.userId) {
