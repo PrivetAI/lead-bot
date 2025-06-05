@@ -23,6 +23,20 @@ services:
       timeout: 5s
       retries: 5
 
+  ngrok:
+    image: ngrok/ngrok:latest
+    container_name: ngrok
+    restart: unless-stopped
+    command: http n8n:5678
+    environment:
+      - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN}
+    ports:
+      - "4040:4040"
+    networks:
+      - lead_network
+    depends_on:
+      - postgres
+
   n8n:
     image: n8nio/n8n:latest
     container_name: n8n
@@ -36,7 +50,6 @@ services:
       - N8N_HOST=0.0.0.0
       - N8N_PORT=5678
       - N8N_PROTOCOL=http
-      - N8N_WEBHOOK_URL=http://n8n:5678/webhook
       - DB_TYPE=postgresdb
       - DB_POSTGRESDB_HOST=postgres
       - DB_POSTGRESDB_PORT=5432
@@ -51,11 +64,15 @@ services:
       - n8n_data:/home/node/.n8n
       - ./n8n/workflows:/home/node/.n8n/workflows
       - ./n8n/credentials:/home/node/.n8n/credentials
+      - ./wait-for-ngrok.js:/home/node/wait-for-ngrok.js
     depends_on:
       postgres:
         condition: service_healthy
+      ngrok:
+        condition: service_started
     networks:
       - lead_network
+    entrypoint: ["node", "/home/node/wait-for-ngrok.js"]
 
   api:
     build: ./api
@@ -71,9 +88,9 @@ services:
       - DB_NAME=leads_db
       - DB_USER=leads_user
       - DB_PASSWORD=leads123
-      - N8N_WEBHOOK_URL=http://n8n:5678/webhook
       - AMOCRM_API_KEY=${AMOCRM_API_KEY:-mock_key_123}
       - AMOCRM_DOMAIN=${AMOCRM_DOMAIN:-mockdomain.amocrm.ru}
+      - DISABLE_WHATSAPP=true
     volumes:
       - ./api/sessions:/app/sessions
       - ./api/logs:/app/logs
@@ -88,7 +105,6 @@ services:
       timeout: 10s
       retries: 3
 
-  # Опционально: Adminer для управления БД
   adminer:
     image: adminer:latest
     container_name: adminer
