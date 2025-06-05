@@ -5,7 +5,7 @@
 n8n Workflow Engine (порт 5678)
 
 Главный оркестратор системы
-Обрабатывает webhook'и от amoCRM и Telegram
+Обрабатывает webhook'и от amoCRM и whatsapp
 Выполняет AI-классификацию лидов через OpenAI
 Интегрируется с Google Calendar
 Координирует все процессы
@@ -14,7 +14,7 @@ n8n Workflow Engine (порт 5678)
 Node.js API Server (порт 3000)
 
 Интеграционный слой между компонентами
-Управляет Telegram userbot'ом  // whatsapp 
+Управляет whatsapp userbot'ом  // whatsapp 
 Обрабатывает запросы от/к amoCRM
 Предоставляет REST API для внешних систем
 
@@ -28,11 +28,11 @@ PostgreSQL Database (порт 5432)
 
 Процесс работы системы
 1. Поступление нового лида
-amoCRM webhook → API Server (/amocrm/sync) → PostgreSQL → n8n webhook   // ?? подумать может вызывать постгрес из n8n а не с сервера 
+amoCRM webhook → API Server (/amocrm/sync) → PostgreSQL → n8n webhook   
 2. AI-обработка лида
-n8n → AI Classifier (OpenAI) → оценка качества лида → обновление в БД и amoCRM  // ?? когда начинаем писать лиду(всегда или когда агент определил его как релевантного) // если не подходит сливаем тактично
-3. Telegram взаимодействие
-Входящее сообщение → Userbot → API Server → n8n → AI Sales Agent → ответ через Userbot // ?? т к сервер вызывает бд для получения инфы диалога 
+n8n → AI Classifier (OpenAI) → оценка качества лида → обновление в БД и amoCRM  // ?? когда начинаем писать лиду(когда агент определил его как релевантного) // если не подходит сливаем тактично
+3. whatsapp взаимодействие
+Входящее сообщение → Userbot → API Server → n8n → AI Sales Agent → ответ через Userbot // 
 4. Календарь и встречи
 n8n AI Agent → Google Calendar API → создание события → сохранение в БД
 

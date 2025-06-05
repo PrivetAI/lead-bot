@@ -3,15 +3,11 @@
 Роль: главный оркестратор с AI-узлами и интеграцией Google Calendar  
 Порт: 5678  
 Функции:  
-– приём webhooks от amoCRM и от API Server (Telegram-уведомления)  
+– приём webhooks от amoCRM и от API Server   
 – AI-классификация (OpenAI/Claude) → генерация sales-диалогов  
 – HTTP-запросы к Google Calendar API (создание/обновление событий)  
 – координация записи в PostgreSQL и обновления лидов в amoCRM  
 **Node.js Userbot**  
-Роль: взаимодействие с Telegram (без Python)  
-Библиотека: node-telegram-bot-api (или аналогичная JS-реализация)  
-Функции:  
-– отправка приветственного шаблона по команде из n8n (по Telegram-ID)  
 – long-polling входящих личных сообщений и пересылка их в n8n через API Server  
 **Node.js API Server**  
 Роль: интеграция, маршрутизация, вспомогательная логика  

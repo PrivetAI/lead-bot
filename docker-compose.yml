@@ -90,7 +90,6 @@ services:
       - DB_PASSWORD=leads123
       - AMOCRM_API_KEY=${AMOCRM_API_KEY:-mock_key_123}
       - AMOCRM_DOMAIN=${AMOCRM_DOMAIN:-mockdomain.amocrm.ru}
-      - DISABLE_WHATSAPP=true
     volumes:
       - ./api/sessions:/app/sessions
       - ./api/logs:/app/logs
