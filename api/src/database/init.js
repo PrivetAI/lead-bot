@@ -10,7 +10,6 @@ class DatabaseInitializer {
 
     async createConnection() {
         try {
-            // Подключаемся к уже существующей базе данных
             this.pool = new Pool({
                 host: this.config.host,
                 port: this.config.port,
@@ -18,11 +17,10 @@ class DatabaseInitializer {
                 password: this.config.password,
                 database: this.config.database
             });
-
             console.log('✅ Подключение к PostgreSQL установлено');
             return true;
         } catch (error) {
-            console.error('❌ Ошибка подключения к PostgreSQL:', error.message);
+            console.error('❌ Ошибка подключения:', error.message);
             return false;
         }
     }
@@ -31,10 +29,8 @@ class DatabaseInitializer {
         try {
             const fullPath = path.join(__dirname, filePath);
             const sql = await fs.readFile(fullPath, 'utf8');
-            
             console.log(`📄 Выполнение SQL файла: ${filePath}`);
             
-            // Разделяем на отдельные команды, игнорируя комментарии
             const statements = sql
                 .split(';')
                 .map(stmt => stmt.trim())
@@ -45,20 +41,17 @@ class DatabaseInitializer {
                     try {
                         await this.pool.query(statement.trim());
                     } catch (error) {
-                        // Игнорируем ошибки "уже существует"
-                        if (!error.message.includes('already exists') && 
-                            !error.message.includes('уже существует') &&
-                            !error.message.includes('duplicate key')) {
-                            console.warn(`⚠️ Предупреждение в SQL: ${error.message}`);
+                        if (!error.message.includes('already exists')) {
+                            console.warn(`⚠️ Предупреждение: ${error.message}`);
                         }
                     }
                 }
             }
             
-            console.log(`✅ SQL файл ${filePath} выполнен успешно`);
+            console.log(`✅ SQL файл ${filePath} выполнен`);
             return true;
         } catch (error) {
-            console.error(`❌ Ошибка выполнения SQL файла ${filePath}:`, error.message);
+            console.error(`❌ Ошибка выполнения SQL файла:`, error.message);
             return false;
         }
     }
@@ -76,9 +69,7 @@ class DatabaseInitializer {
             const tables = result.rows.map(row => row.tablename);
             
             console.log('📋 Существующие таблицы:');
-            tables.forEach(table => {
-                console.log(`  - ${table}`);
-            });
+            tables.forEach(table => console.log(`  - ${table}`));
             
             return tables;
         } catch (error) {
@@ -87,75 +78,12 @@ class DatabaseInitializer {
         }
     }
 
-    async insertTestData() {
-        try {
-            console.log('📝 Проверка тестовых данных...');
-            
-            // Проверяем новые таблицы (для n8n workflow)
-            const newTestLeads = [
-                {
-                    lead_id: 2001,
-                    name: 'Тест N8N Лид',
-                    phone: '79001112233',
-                    company_info: 'Тестовая компания для N8N',
-                    business_type: 'IT',
-                    status: 'new'
-                }
-            ];
-
-            // Проверяем, есть ли таблица leads с новой структурой
-            const checkTableQuery = `
-                SELECT column_name 
-                FROM information_schema.columns 
-                WHERE table_name = 'leads' AND column_name = 'lead_id'
-            `;
-            
-            const tableResult = await this.pool.query(checkTableQuery);
-            
-            if (tableResult.rows.length > 0) {
-                for (const lead of newTestLeads) {
-                    const checkQuery = `SELECT 1 FROM leads WHERE lead_id = $1`;
-                    const existing = await this.pool.query(checkQuery, [lead.lead_id]);
-                    
-                    if (existing.rows.length === 0) {
-                        const insertQuery = `
-                            INSERT INTO leads (lead_id, name, phone, company_info, business_type, status) 
-                            VALUES ($1, $2, $3, $4, $5, $6)
-                        `;
-                        
-                        await this.pool.query(insertQuery, [
-                            lead.lead_id,
-                            lead.name,
-                            lead.phone,
-                            lead.company_info,
-                            lead.business_type,
-                            lead.status
-                        ]);
-                        
-                        console.log(`  ✅ Добавлен тестовый лид: ${lead.name}`);
-                    } else {
-                        console.log(`  ⚠️ Лид ${lead.name} уже существует`);
-                    }
-                }
-            } else {
-                console.log('  ℹ️ Таблица leads имеет старую структуру, тестовые данные не добавлены');
-            }
-            
-            return true;
-        } catch (error) {
-            console.error('❌ Ошибка вставки тестовых данных:', error.message);
-            return false;
-        }
-    }
-
     async initialize() {
-        console.log('🚀 Инициализация дополнительных таблиц для n8n workflow...\n');
+        console.log('🚀 Инициализация базы данных...\n');
         
         try {
             const connected = await this.createConnection();
             if (!connected) return false;
-
-            console.log('ℹ️ База данных и пользователь уже существуют (созданы через Docker)');
 
             const schemaCreated = await this.executeSqlFile('schema.sql');
             if (!schemaCreated) return false;
@@ -166,9 +94,7 @@ class DatabaseInitializer {
                 return false;
             }
 
-            await this.insertTestData();
-
-            console.log('\n🎉 Инициализация завершена успешно!');
+            console.log('\n✅ Инициализация завершена!');
             console.log('\n📝 Данные для подключения n8n:');
             console.log(`   Host: ${this.config.host}`);
             console.log(`   Database: ${this.config.database}`);
@@ -178,7 +104,7 @@ class DatabaseInitializer {
             
             return true;
         } catch (error) {
-            console.error('❌ Критическая ошибка инициализации:', error.message);
+            console.error('❌ Критическая ошибка:', error.message);
             return false;
         } finally {
             if (this.pool) {
@@ -188,21 +114,15 @@ class DatabaseInitializer {
     }
 
     async reset() {
-        console.log('🔄 Сброс таблиц базы данных...');
+        console.log('🔄 Сброс базы данных...');
         
         try {
             const connected = await this.createConnection();
             if (!connected) return false;
             
-            // Удаляем существующие таблицы для n8n workflow
             const dropQueries = [
-                'DROP TABLE IF EXISTS ai_responses_log CASCADE',
-                'DROP TABLE IF EXISTS meetings CASCADE', 
                 'DROP TABLE IF EXISTS chat_history CASCADE',
-                'DROP TABLE IF EXISTS system_settings CASCADE',
-                'DROP VIEW IF EXISTS lead_analytics CASCADE',
-                'DROP VIEW IF EXISTS chat_statistics CASCADE',
-                'DROP VIEW IF EXISTS sales_funnel CASCADE'
+                'DROP TABLE IF EXISTS leads CASCADE'
             ];
             
             for (const query of dropQueries) {
@@ -213,13 +133,12 @@ class DatabaseInitializer {
                 }
             }
             
-            console.log('✅ Старые таблицы удалены');
-            
+            console.log('✅ Таблицы удалены');
             await this.pool.end();
             
             return await this.initialize();
         } catch (error) {
-            console.error('❌ Ошибка сброса базы данных:', error.message);
+            console.error('❌ Ошибка сброса БД:', error.message);
             return false;
         }
     }

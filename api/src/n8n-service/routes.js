@@ -51,29 +51,6 @@ router.post('/n8n', async (req, res) => {
       );
     }
 
-    // Сохраняем данные о встрече если есть
-    if (calendar_data && lead_id) {
-      await db.query(
-        `INSERT INTO calendar_events 
-         (lead_id, google_event_id, title, description, start_time, end_time, status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
-         ON CONFLICT (google_event_id) 
-         DO UPDATE SET 
-           title = EXCLUDED.title,
-           start_time = EXCLUDED.start_time,
-           end_time = EXCLUDED.end_time,
-           status = EXCLUDED.status`,
-        [
-          lead_id,
-          calendar_data.event_id,
-          calendar_data.title,
-          calendar_data.description,
-          calendar_data.start_time,
-          calendar_data.end_time,
-          calendar_data.status || 'scheduled'
-        ]
-      );
-    }
 
     res.json({ success: true });
   } catch (error) {

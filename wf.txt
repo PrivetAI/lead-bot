@@ -11,8 +11,8 @@
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
       "position": [
-        -1580,
-        -300
+        -2060,
+        -80
       ],
       "webhookId": "amocrm-webhook-12345"
     },
@@ -35,12 +35,12 @@
           "mappingMode": "defineBelow",
           "value": {
             "name": "={{ $('extract lead').item.json.name }}",
-            "phone": "={{ $json.custom_fields_values[0].values[0].value.replaceAll(('+'),'') }}",
-            "id": "={{ $('extract lead').item.json.id }}",
-            "amocrm_id": "={{ $('extract lead').item.json.id }}"
+            "phone": "={{ $json.phone }}",
+            "amocrm_id": "={{ $('extract lead').item.json.id }}",
+            "ai_score": 0,
+            "ai_classification": "null"
           },
           "matchingColumns": [
-            "id",
             "amocrm_id"
           ],
           "schema": [
@@ -52,7 +52,7 @@
               "display": true,
               "type": "number",
               "canBeUsedToMatch": true,
-              "removed": false
+              "removed": true
             },
             {
               "id": "amocrm_id",
@@ -161,7 +161,7 @@
               "display": true,
               "type": "object",
               "canBeUsedToMatch": false,
-              "removed": true
+              "removed": false
             },
             {
               "id": "ai_score",
@@ -171,7 +171,7 @@
               "display": true,
               "type": "number",
               "canBeUsedToMatch": false,
-              "removed": true
+              "removed": false
             },
             {
               "id": "classification_stage",
@@ -244,8 +244,8 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
       "position": [
-        -180,
-        -400
+        -960,
+        -180
       ],
       "credentials": {
         "postgres": {
@@ -271,7 +271,7 @@
         "bodyParameters": {
           "parameters": [
             {
-              "name": "wa_id",
+              "name": "phone",
               "value": "={{ $json.phone }}"
             },
             {
@@ -279,8 +279,8 @@
               "value": "=Здравствуйте, {{$json.name}}! 👋\n\nМеня зовут Анна, я ваш персональный помощник. Вижу, что вы оставили заявку на нашем сайте.\n\nРасскажите, пожалуйста, с какой задачей к нам обратились? Какой результат хотели бы получить?"
             },
             {
-              "name": "=id",
-              "value": "={{ $json.lead_id }}"
+              "name": "id",
+              "value": "={{ $('extract lead').item.json.id }}"
             }
           ]
         },
@@ -291,8 +291,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        -260,
-        -200
+        -960,
+        20
       ]
     },
     {
@@ -306,22 +306,22 @@
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
       "position": [
-        -1580,
-        160
+        -2060,
+        480
       ],
       "webhookId": "whatsapp-userbot-12345"
     },
     {
       "parameters": {
-        "jsCode": "// Extract message data from userbot webhook\nconst data = $input.first().json.body;\n\nreturn {\n  phone: data.wa_phone || '',\n  message_text: data.message || '',\n  message_type: data.message_type || 'text',\n  contact_name: data.contact_name || '',\n  timestamp: data.timestamp || new Date().toISOString(),\n  message_id: data.message_id || Date.now().toString(),\n  chat_id: data.wa_id || '',\n  is_group: false, // Всегда false, так как в сервисе мы фильтруем групповые сообщения\n  has_media: data.has_media || false,\n  lead_id: data.lead_id || null,\n  direction: data.direction || 'incoming'\n};"
+        "jsCode": "// Extract message data from userbot webhook\nconst data = $input.first().json.body;\n\nreturn {\n  phone: data.phone || '',\n  message_text: data.message || '',\n  message_type: data.message_type || 'text',\n  contact_name: data.contact_name || '',\n  timestamp: data.timestamp || new Date().toISOString(),\n  message_id: data.message_id || Date.now().toString(),\n  chat_id: data.wa_id || '',\n  is_group: false, // Всегда false, так как в сервисе мы фильтруем групповые сообщения\n  has_media: data.has_media || false,\n  direction: data.direction || 'incoming'\n};"
       },
       "id": "0522ab03-c97c-4bcf-8cf5-9672f42b33ba",
       "name": "Extract WhatsApp Data",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -1360,
-        160
+        -1840,
+        480
       ]
     },
     {
@@ -354,8 +354,8 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
       "position": [
-        -1140,
-        160
+        -1620,
+        480
       ],
       "credentials": {
         "postgres": {
@@ -363,174 +363,6 @@
           "name": "Postgres account"
         }
       }
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "http://localhost:3000/api/send-message",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Content-Type",
-              "value": "application/json"
-            }
-          ]
-        },
-        "sendBody": true,
-        "bodyParameters": {
-          "parameters": [
-            {
-              "name": "phone",
-              "value": "={{ $('Extract WhatsApp Data').first().json.phone }}"
-            },
-            {
-              "name": "message",
-              "value": "={{ $json.choices[0].message.content }}"
-            }
-          ]
-        },
-        "options": {}
-      },
-      "id": "2cc0f773-ca61-48ca-8b80-bae2193d1f74",
-      "name": "Send AI Response",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        -1580,
-        620
-      ]
-    },
-    {
-      "parameters": {
-        "jsCode": "// Detect meeting request keywords\nconst messageText = $('Extract WhatsApp Data').first().json.message_text.toLowerCase();\nconst aiResponse = $json.choices[0].message.content.toLowerCase();\n\nconst meetingKeywords = [\n  'встреча', 'встретиться', 'созвон', 'звонок', \n  'демо', 'презентация', 'да', 'согласен', \n  'подходит', 'договорились', 'записать'\n];\n\nconst needsMeeting = meetingKeywords.some(keyword => \n  messageText.includes(keyword) || aiResponse.includes(keyword)\n);\n\nreturn {\n  needs_meeting: needsMeeting,\n  client_message: messageText,\n  ai_response: aiResponse\n};"
-      },
-      "id": "045c73e2-3a2f-470c-b2f7-d8513b74efe2",
-      "name": "Detect Meeting Request",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        -1360,
-        620
-      ]
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "boolean": [
-            {
-              "value1": "={{ $json.needs_meeting }}",
-              "value2": true,
-              "operation": "equal"
-            }
-          ]
-        },
-        "options": {}
-      },
-      "id": "6c132f4e-ddf9-4a9a-a135-91cb89bd09e4",
-      "name": "Check Meeting Needed",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
-      "position": [
-        -1140,
-        620
-      ]
-    },
-    {
-      "parameters": {
-        "jsCode": "// Calculate next available meeting slot\nconst now = new Date();\nlet nextSlot = new Date(now);\n\n// If it's after 6 PM, schedule for next day\nif (now.getHours() >= 18) {\n  nextSlot.setDate(nextSlot.getDate() + 1);\n}\n\n// Set to 10 AM\nnextSlot.setHours(10, 0, 0, 0);\n\n// Skip weekends\nwhile (nextSlot.getDay() === 0 || nextSlot.getDay() === 6) {\n  nextSlot.setDate(nextSlot.getDate() + 1);\n}\n\nconst endTime = new Date(nextSlot.getTime() + 60 * 60 * 1000);\n\nreturn {\n  start_time: nextSlot.toISOString(),\n  end_time: endTime.toISOString(),\n  formatted_time: nextSlot.toLocaleString('ru-RU', {\n    weekday: 'long',\n    day: 'numeric',\n    month: 'long',\n    hour: '2-digit',\n    minute: '2-digit'\n  })\n};"
-      },
-      "id": "6b5191e0-e10d-43d1-ac0e-4bdfe8c258e7",
-      "name": "Calculate Meeting Time",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        -920,
-        620
-      ]
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "https://www.googleapis.com/calendar/v3/calendars/primary/events",
-        "authentication": "oAuth2Api",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Content-Type",
-              "value": "application/json"
-            }
-          ]
-        },
-        "sendBody": true,
-        "bodyParameters": {
-          "parameters": [
-            {
-              "name": "summary",
-              "value": "={{ 'Встреча с клиентом - ' + $('Find Lead in Database').first().json.name }}"
-            },
-            {
-              "name": "description",
-              "value": "={{ 'Встреча с лидом\\nТелефон: ' + $('Extract WhatsApp Data').first().json.phone }}"
-            },
-            {
-              "name": "start",
-              "value": "={{ { \"dateTime\": $('Calculate Meeting Time').first().json.start_time, \"timeZone\": \"Europe/Moscow\" } }}"
-            },
-            {
-              "name": "end",
-              "value": "={{ { \"dateTime\": $('Calculate Meeting Time').first().json.end_time, \"timeZone\": \"Europe/Moscow\" } }}"
-            }
-          ]
-        },
-        "options": {}
-      },
-      "id": "99405042-a770-4989-be60-22858c59b569",
-      "name": "Create Calendar Event",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        -700,
-        620
-      ]
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "http://localhost:3000/api/send-message",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Content-Type",
-              "value": "application/json"
-            }
-          ]
-        },
-        "sendBody": true,
-        "bodyParameters": {
-          "parameters": [
-            {
-              "name": "phone",
-              "value": "={{ $('Extract WhatsApp Data').first().json.phone }}"
-            },
-            {
-              "name": "message",
-              "value": "={{ `Отлично! Встреча назначена на ${$('Calculate Meeting Time').first().json.formatted_time}.\\n\\nВы получите приглашение на почту.\\n\\nДо встречи! 👋` }}"
-            }
-          ]
-        },
-        "options": {}
-      },
-      "id": "d8f12089-3071-4ae0-b1ef-4724fff4b83c",
-      "name": "Send Meeting Confirmation",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        -480,
-        520
-      ]
     },
     {
       "parameters": {
@@ -760,8 +592,8 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
       "position": [
-        -480,
-        720
+        76,
+        505
       ],
       "credentials": {
         "postgres": {
@@ -783,8 +615,8 @@
       "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
       "typeVersion": 1.2,
       "position": [
-        -80,
-        400
+        -492,
+        825
       ],
       "id": "32d48b30-f40c-42ee-9aa2-b6fdd486e2ae",
       "name": "OpenAI Chat Model",
@@ -807,8 +639,8 @@
       "type": "@n8n/n8n-nodes-langchain.agent",
       "typeVersion": 2,
       "position": [
-        -40,
-        160
+        -520,
+        605
       ],
       "id": "86aeeca0-93a6-4928-8fad-7e2100182b1d",
       "name": "AI Agent qualify"
@@ -830,8 +662,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        -1360,
-        -300
+        -1840,
+        -80
       ],
       "id": "00afbba0-fa33-475e-97d4-9c8a6e5784fe",
       "name": "HTTP Request"
@@ -853,8 +685,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        -920,
-        -300
+        -1400,
+        -80
       ],
       "id": "3cc78a68-8ac9-4f81-a118-6ccc7586fd4b",
       "name": "HTTP Request1"
@@ -866,21 +698,21 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -1140,
-        -300
+        -1620,
+        -80
       ],
       "id": "9785517c-8b2c-4f0b-9d1b-3f49e66ad432",
       "name": "extract lead"
     },
     {
       "parameters": {
-        "jsCode": "return JSON.parse($input.first().json.data)"
+        "jsCode": "// Парсинг JSON данных контакта\nconst parsedData = JSON.parse($input.first().json.data);\n\n// Извлечение основных данных контакта\nconst contact = {\n  id: parsedData.id,\n  name: parsedData.name,\n  first_name: parsedData.first_name,\n  last_name: parsedData.last_name,\n  responsible_user_id: parsedData.responsible_user_id,\n  group_id: parsedData.group_id,\n  created_by: parsedData.created_by,\n  updated_by: parsedData.updated_by,\n  created_at: parsedData.created_at,\n  updated_at: parsedData.updated_at,\n  closest_task_at: parsedData.closest_task_at,\n  is_deleted: parsedData.is_deleted,\n  is_unsorted: parsedData.is_unsorted,\n  account_id: parsedData.account_id,\n  \n  // Обработка кастомных полей\n  custom_fields: parsedData.custom_fields_values?.map(field => ({\n    field_id: field.field_id,\n    field_name: field.field_name,\n    field_code: field.field_code,\n    field_type: field.field_type,\n    values: field.values?.map(value => ({\n      value: value.value,\n      enum_id: value.enum_id,\n      enum_code: value.enum_code\n    })) || []\n  })) || [],\n  \n  // Извлечение телефона (если есть поле PHONE)\n  phone: parsedData.custom_fields_values?.find(field => field.field_code === 'PHONE')?.values?.[0]?.value?.replaceAll('+','') || null,\n  \n  // Обработка связанных данных\n  tags: parsedData._embedded?.tags || [],\n  companies: parsedData._embedded?.companies || [],\n  \n  // Ссылки API\n  self_link: parsedData._links?.self?.href || null\n};\n\nreturn contact;"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -700,
-        -300
+        -1180,
+        -80
       ],
       "id": "355741f5-fcf8-412d-951a-346b758fecb3",
       "name": "extract contact"
@@ -890,28 +722,21 @@
         "operation": "select",
         "schema": {
           "__rl": true,
+          "value": "public",
           "mode": "list",
-          "value": "public"
+          "cachedResultName": "public"
         },
         "table": {
           "__rl": true,
-          "value": "conversations",
+          "value": "chat_history",
           "mode": "list",
-          "cachedResultName": "conversations"
+          "cachedResultName": "chat_history"
         },
         "where": {
           "values": [
             {
               "column": "lead_id",
-              "value": "={{ $json.id }}"
-            }
-          ]
-        },
-        "sort": {
-          "values": [
-            {
-              "column": "created_at",
-              "direction": "DESC"
+              "value": "={{ $json.amocrm_id }}"
             }
           ]
         },
@@ -920,8 +745,8 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
       "position": [
-        -700,
-        160
+        -1400,
+        480
       ],
       "id": "e61662a1-a4bd-40fe-9b64-1c2e0c45cbb3",
       "name": "get messages",
@@ -939,8 +764,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -260,
-        160
+        -960,
+        480
       ],
       "id": "8287e0ed-b573-4bb4-b128-8f6e9099e1fb",
       "name": "Code"
@@ -953,8 +778,8 @@
       "type": "n8n-nodes-base.aggregate",
       "typeVersion": 1,
       "position": [
-        -480,
-        160
+        -1180,
+        480
       ],
       "id": "677956d6-0ded-4fbe-8fe6-c268decab73b",
       "name": "Aggregate"
@@ -996,14 +821,14 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        776,
-        160
+        76,
+        705
       ]
     },
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "DO\n$$\nDECLARE\n    tabname text;\nBEGIN\n    FOR tabname IN\n        SELECT tablename\n        FROM pg_tables\n        WHERE schemaname = 'public'\n    LOOP\n        EXECUTE 'DELETE FROM public.' || quote_ident(tabname) || ' CASCADE';\n    END LOOP;\nEND;\n$$;\n",
+        "query": "SELECT * FROM chat_history;",
         "options": {}
       },
       "type": "n8n-nodes-base.postgres",
@@ -1028,8 +853,8 @@
       "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
       "typeVersion": 1.2,
       "position": [
-        140,
-        380
+        -372,
+        825
       ],
       "id": "d85b21a7-7459-4ac3-8930-4c80a6ffff8d",
       "name": "Structured Output Parser"
@@ -1061,8 +886,8 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        340,
-        180
+        -144,
+        605
       ],
       "id": "716bcac1-b32f-447f-9e2d-be78e635aadd",
       "name": "Qualified"
@@ -1103,11 +928,48 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        -920,
-        160
+        -740,
+        480
       ],
       "id": "c0b89fc4-ccee-4b93-af25-6fa6ea8f1dc9",
       "name": "is_qualified"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [
+        296,
+        380
+      ],
+      "id": "84670188-3cd7-4d63-8f49-5df7a10c0d19",
+      "name": "AI Sales Agent"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4o-mini"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        384,
+        600
+      ],
+      "id": "4a0a4fd4-9ed2-43ce-8d7e-50159970b428",
+      "name": "OpenAI Chat Model1",
+      "credentials": {
+        "openAiApi": {
+          "id": "0AaWvDVkoyxlCCJv",
+          "name": "OpenAi account"
+        }
+      }
     }
   ],
   "connections": {
@@ -1148,67 +1010,18 @@
       "main": [
         [
           {
-            "node": "is_qualified",
+            "node": "get messages",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Send AI Response": {
+    "Update Lead Status": {
       "main": [
         [
           {
-            "node": "Detect Meeting Request",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Detect Meeting Request": {
-      "main": [
-        [
-          {
-            "node": "Check Meeting Needed",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Check Meeting Needed": {
-      "main": [
-        [
-          {
-            "node": "Calculate Meeting Time",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Calculate Meeting Time": {
-      "main": [
-        [
-          {
-            "node": "Create Calendar Event",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Create Calendar Event": {
-      "main": [
-        [
-          {
-            "node": "Send Meeting Confirmation",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Update Lead Status",
+            "node": "AI Sales Agent",
             "type": "main",
             "index": 0
           }
@@ -1301,7 +1114,7 @@
       "main": [
         [
           {
-            "node": "AI Agent qualify",
+            "node": "is_qualified",
             "type": "main",
             "index": 0
           }
@@ -1332,7 +1145,13 @@
     },
     "Qualified": {
       "main": [
-        [],
+        [
+          {
+            "node": "Update Lead Status",
+            "type": "main",
+            "index": 0
+          }
+        ],
         [
           {
             "node": "Send Message",
@@ -1344,11 +1163,28 @@
     },
     "is_qualified": {
       "main": [
-        [],
         [
           {
-            "node": "get messages",
+            "node": "AI Sales Agent",
             "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "AI Agent qualify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Sales Agent",
+            "type": "ai_languageModel",
             "index": 0
           }
         ]

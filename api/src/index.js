@@ -4,7 +4,6 @@ const helmet = require('helmet');
 const db = require('./database/connection');
 const whatsappRouter = require('./whatsapp/routes');
 const amocrmRouter = require('./amocrm/routes');
-const webhookRouter = require('./webhook/routes');
 const whatsappService = require('./whatsapp/service');
 
 const app = express();
@@ -14,47 +13,55 @@ const PORT = process.env.PORT || 3000;
 app.use(helmet());
 app.use(cors());
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 
-// Logging middleware
+// Logging
 app.use((req, res, next) => {
   console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
   next();
 });
 
-
 // Routes
 app.use('/whatsapp', whatsappRouter);
 app.use('/amocrm', amocrmRouter);
-app.use('/webhook', webhookRouter);
+
+// Инициализация БД при старте
+app.post('/init-db', async (req, res) => {
+  try {
+    const DatabaseInitializer = require('./database/init');
+    const config = require('./database/config');
+    const initializer = new DatabaseInitializer(config);
+    const success = await initializer.initialize();
+    
+    if (success) {
+      res.json({ success: true, message: 'Database initialized' });
+    } else {
+      res.status(500).json({ success: false, message: 'Failed to initialize database' });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
 // Health check
 app.get('/health', async (req, res) => {
   try {
-    // Проверяем подключение к БД
     await db.query('SELECT 1');
-    
     res.json({ 
       status: 'ok', 
       timestamp: new Date(),
-      services: {
-        database: 'connected',
-        whatsapp: whatsappService.isReady ? 'ready' : 'not ready'
-      }
+      whatsapp: whatsappService.isReady ? 'ready' : 'not ready'
     });
   } catch (error) {
-    res.status(503).json({ 
-      status: 'error', 
-      message: error.message 
-    });
+    res.status(503).json({ status: 'error', message: error.message });
   }
 });
-// API для получения истории разговора
-app.get('/conversation/:leadId', async (req, res) => {
+
+// Получить историю чата
+app.get('/chat/:leadId', async (req, res) => {
   try {
     const { leadId } = req.params;
     const result = await db.query(
-      `SELECT * FROM conversations 
+      `SELECT * FROM chat_history 
        WHERE lead_id = $1 
        ORDER BY created_at DESC 
        LIMIT 50`,
@@ -66,12 +73,12 @@ app.get('/conversation/:leadId', async (req, res) => {
   }
 });
 
-// API для получения информации о лиде
+// Получить информацию о лиде
 app.get('/lead/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const leadResult = await db.query(
-      'SELECT * FROM leads WHERE id = $1 OR amocrm_id = $1',
+      'SELECT * FROM leads WHERE id = $1 OR lead_id = $1',
       [id]
     );
     
@@ -83,7 +90,7 @@ app.get('/lead/:id', async (req, res) => {
     
     // Получаем последние сообщения
     const messagesResult = await db.query(
-      `SELECT * FROM conversations 
+      `SELECT * FROM chat_history 
        WHERE lead_id = $1 
        ORDER BY created_at DESC 
        LIMIT 10`,
@@ -91,27 +98,27 @@ app.get('/lead/:id', async (req, res) => {
     );
     
     lead.recent_messages = messagesResult.rows;
-    
     res.json(lead);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-// API для обновления классификации лида
-app.post('/lead/:id/classification', async (req, res) => {
+// Обновить классификацию лида
+app.post('/lead/:id/classify', async (req, res) => {
   try {
     const { id } = req.params;
-    const { classification, score, stage } = req.body;
+    const { classification, company_size, budget_range, needs } = req.body;
     
     await db.query(
       `UPDATE leads 
-       SET ai_classification = $1, 
-           ai_score = $2, 
-           classification_stage = $3,
+       SET classification = $1, 
+           company_size = $2, 
+           budget_range = $3,
+           needs = $4,
            updated_at = CURRENT_TIMESTAMP
-       WHERE id = $4`,
-      [classification, score, stage, id]
+       WHERE id = $5`,
+      [classification, company_size, budget_range, needs, id]
     );
     
     res.json({ success: true });
@@ -120,42 +127,27 @@ app.post('/lead/:id/classification', async (req, res) => {
   }
 });
 
-// API для статистики
+// Статистика
 app.get('/stats', async (req, res) => {
   try {
-    const stats = {};
-    
-    // Общее количество лидов
     const totalLeads = await db.query('SELECT COUNT(*) FROM leads');
-    stats.total_leads = parseInt(totalLeads.rows[0].count);
-    
-    // Лиды по статусам
     const leadsByStatus = await db.query(
       'SELECT status, COUNT(*) FROM leads GROUP BY status'
     );
-    stats.leads_by_status = leadsByStatus.rows;
-    
-    // Лиды по источникам
-    const leadsBySource = await db.query(
-      'SELECT source, COUNT(*) FROM leads GROUP BY source'
+    const leadsByClassification = await db.query(
+      'SELECT classification, COUNT(*) FROM leads WHERE classification IS NOT NULL GROUP BY classification'
     );
-    stats.leads_by_source = leadsBySource.rows;
-    
-    // Сообщения за последние 24 часа
-    const recentMessages = await db.query(
-      `SELECT COUNT(*) FROM conversations 
+    const messagesLast24h = await db.query(
+      `SELECT COUNT(*) FROM chat_history 
        WHERE created_at > NOW() - INTERVAL '24 hours'`
     );
-    stats.messages_24h = parseInt(recentMessages.rows[0].count);
     
-    // Запланированные встречи
-    const upcomingMeetings = await db.query(
-      `SELECT COUNT(*) FROM calendar_events 
-       WHERE start_time > NOW() AND status = 'scheduled'`
-    );
-    stats.upcoming_meetings = parseInt(upcomingMeetings.rows[0].count);
-    
-    res.json(stats);
+    res.json({
+      total_leads: parseInt(totalLeads.rows[0].count),
+      by_status: leadsByStatus.rows,
+      by_classification: leadsByClassification.rows,
+      messages_24h: parseInt(messagesLast24h.rows[0].count)
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -164,10 +156,7 @@ app.get('/stats', async (req, res) => {
 // Error handling
 app.use((err, req, res, next) => {
   console.error('Error:', err);
-  res.status(500).json({ 
-    error: 'Internal server error',
-    message: err.message 
-  });
+  res.status(500).json({ error: 'Internal server error' });
 });
 
 // 404 handler
@@ -178,11 +167,19 @@ app.use((req, res) => {
 // Start server
 async function startServer() {
   try {
-    // Проверяем переменную окружения
-    if (process.env.DISABLE_WHATSAPP === 'true') {
-      console.log('⚠️  WhatsApp service is disabled by environment variable');
-    } else {
-      // Инициализируем WhatsApp
+    // Проверяем таблицы БД
+    console.log('Checking database tables...');
+    try {
+      await db.query('SELECT 1 FROM leads LIMIT 1');
+      await db.query('SELECT 1 FROM chat_history LIMIT 1');
+      console.log('✅ Database tables exist');
+    } catch (error) {
+      console.error('❌ Database tables missing:', error.message);
+      console.log('Run: npm run db:init');
+      process.exit(1);
+    }
+    
+    if (process.env.DISABLE_WHATSAPP !== 'true') {
       console.log('Starting WhatsApp service...');
       await whatsappService.initialize();
     }
@@ -192,24 +189,24 @@ async function startServer() {
       console.log('📍 Available endpoints:');
       console.log('  GET  /health');
       console.log('  GET  /stats');
-      console.log('  GET  /whatsapp/status');
+      console.log('  GET  /lead/:id');
+      console.log('  GET  /chat/:leadId');
+      console.log('  POST /lead/:id/classify');
       console.log('  POST /whatsapp/send');
-      console.log('  POST /amocrm/sync');
-      console.log('  POST /webhook/n8n\n');
+      console.log('  POST /amocrm/sync\n');
     });
   } catch (error) {
     console.error('Failed to start server:', error);
     process.exit(1);
   }
 }
+
 // Graceful shutdown
 process.on('SIGTERM', async () => {
-  console.log('SIGTERM received, shutting down gracefully...');
-  
+  console.log('Shutting down...');
   if (whatsappService.client) {
-    await whatsappService.client.destroy();
+    await whatsappService.destroy();
   }
-  
   await db.end();
   process.exit(0);
 });
