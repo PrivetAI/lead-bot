@@ -1,97 +1,263 @@
 {
-  "meta": {
-    "templateCredsSetupCompleted": true,
-    "instanceId": "12345"
-  },
-  "name": "WhatsApp Sales Automation System",
   "nodes": [
     {
       "parameters": {
+        "httpMethod": "POST",
         "path": "amocrm-webhook",
         "options": {}
       },
-      "id": "amocrm-webhook-node",
+      "id": "deccdf74-7247-49cd-acc4-73f0e1fc9098",
       "name": "AmoCRM Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [240, 300],
+      "position": [
+        -1580,
+        -300
+      ],
       "webhookId": "amocrm-webhook-12345"
     },
     {
       "parameters": {
-        "conditions": {
-          "string": [
-            {
-              "value1": "={{ $json.leads[0].name }}",
-              "operation": "isNotEmpty"
-            },
-            {
-              "value1": "={{ $json.leads[0].custom_fields_values?.find(field => field.field_name === 'Телефон')?.values[0]?.value }}",
-              "operation": "isNotEmpty"
-            }
-          ]
-        }
-      },
-      "id": "validate-lead-node",
-      "name": "Validate Lead Data",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
-      "position": [460, 300]
-    },
-    {
-      "parameters": {
-        "jsCode": "// Extract lead data from AmoCRM webhook\nconst leadData = $input.first().json.leads[0];\nconst customFields = leadData.custom_fields_values || [];\n\n// Find phone number\nconst phoneField = customFields.find(field => \n  field.field_name === 'Телефон' || field.field_code === 'PHONE'\n);\nconst phone = phoneField?.values[0]?.value || '';\n\n// Clean phone number\nconst cleanPhone = phone.replace(/[^\\d]/g, '');\n\n// Extract other fields\nconst companyField = customFields.find(field => field.field_name === 'Компания');\nconst businessTypeField = customFields.find(field => field.field_name === 'Тип бизнеса');\nconst employeesField = customFields.find(field => field.field_name === 'Количество сотрудников');\nconst hasCrmField = customFields.find(field => field.field_name === 'Есть CRM');\n\nreturn {\n  lead_id: leadData.id,\n  name: leadData.name || 'Новый лид',\n  phone: cleanPhone,\n  company_info: companyField?.values[0]?.value || '',\n  business_type: businessTypeField?.values[0]?.value || '',\n  employees_count: employeesField?.values[0]?.value || '',\n  has_crm: hasCrmField?.values[0]?.value || '',\n  status: 'new',\n  created_at: new Date().toISOString(),\n  whatsapp_number: cleanPhone.startsWith('7') ? cleanPhone : '7' + cleanPhone\n};"
-      },
-      "id": "extract-lead-node",
-      "name": "Extract Lead Data",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [680, 300]
-    },
-    {
-      "parameters": {
-        "operation": "insert",
+        "operation": "upsert",
         "schema": {
           "__rl": true,
           "value": "public",
-          "mode": "list"
+          "mode": "list",
+          "cachedResultName": "public"
         },
         "table": {
           "__rl": true,
           "value": "leads",
-          "mode": "list"
+          "mode": "list",
+          "cachedResultName": "leads"
         },
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "lead_id": "={{ $json.lead_id }}",
-            "name": "={{ $json.name }}",
-            "phone": "={{ $json.phone }}",
-            "company_info": "={{ $json.company_info }}",
-            "business_type": "={{ $json.business_type }}",
-            "employees_count": "={{ $json.employees_count }}",
-            "has_crm": "={{ $json.has_crm }}",
-            "status": "={{ $json.status }}",
-            "created_at": "={{ $json.created_at }}"
-          }
-        }
+            "name": "={{ $('extract lead').item.json.name }}",
+            "phone": "={{ $json.custom_fields_values[0].values[0].value.replaceAll(('+'),'') }}",
+            "id": "={{ $('extract lead').item.json.id }}",
+            "amocrm_id": "={{ $('extract lead').item.json.id }}"
+          },
+          "matchingColumns": [
+            "id",
+            "amocrm_id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "amocrm_id",
+              "displayName": "amocrm_id",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "name",
+              "displayName": "name",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "wa_id",
+              "displayName": "wa_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "budget",
+              "displayName": "budget",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "product_interest",
+              "displayName": "product_interest",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "notes",
+              "displayName": "notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "ai_classification",
+              "displayName": "ai_classification",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "object",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "ai_score",
+              "displayName": "ai_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "classification_stage",
+              "displayName": "classification_stage",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "pipeline_id",
+              "displayName": "pipeline_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "stage_id",
+              "displayName": "stage_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "responsible_user_id",
+              "displayName": "responsible_user_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "created_at",
+              "displayName": "created_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "updated_at",
+              "displayName": "updated_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": false,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
       },
-      "id": "save-lead-node",
+      "id": "a748abc5-b306-4eca-bf44-ecf075d57ba5",
       "name": "Save Lead to PostgreSQL",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
-      "position": [900, 220],
+      "position": [
+        -180,
+        -400
+      ],
       "credentials": {
         "postgres": {
-          "id": "postgres-credentials",
-          "name": "PostgreSQL Main DB"
+          "id": "fnp0aoTITqNjEjvW",
+          "name": "Postgres account"
         }
       }
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "http://localhost:3000/api/send-message",
+        "url": "http://api:3000/whatsapp/welcome",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -105,70 +271,58 @@
         "bodyParameters": {
           "parameters": [
             {
-              "name": "phone",
-              "value": "={{ $json.whatsapp_number }}"
+              "name": "wa_id",
+              "value": "={{ $json.phone }}"
             },
             {
               "name": "message",
-              "value": "={{ `Здравствуйте, ${$json.name}! 👋\\n\\nМеня зовут Анна, я ваш персональный помощник. Вижу, что вы оставили заявку на нашем сайте.\\n\\nРасскажите, пожалуйста, с какой задачей к нам обратились? Какой результат хотели бы получить?` }}"
+              "value": "=Здравствуйте, {{$json.name}}! 👋\n\nМеня зовут Анна, я ваш персональный помощник. Вижу, что вы оставили заявку на нашем сайте.\n\nРасскажите, пожалуйста, с какой задачей к нам обратились? Какой результат хотели бы получить?"
+            },
+            {
+              "name": "=id",
+              "value": "={{ $json.lead_id }}"
             }
           ]
-        }
+        },
+        "options": {}
       },
-      "id": "send-welcome-node",
+      "id": "8b10cf77-9873-4d21-a99e-13576df0ed62",
       "name": "Send Welcome WhatsApp",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [900, 300]
+      "position": [
+        -260,
+        -200
+      ]
     },
     {
       "parameters": {
+        "httpMethod": "POST",
         "path": "whatsapp-userbot-webhook",
         "options": {}
       },
-      "id": "whatsapp-webhook-node",
+      "id": "bfe5d56e-c9a5-40dc-b6e6-8a55ca8d1e02",
       "name": "WhatsApp Userbot Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [240, 600],
+      "position": [
+        -1580,
+        160
+      ],
       "webhookId": "whatsapp-userbot-12345"
     },
     {
       "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict"
-          },
-          "conditions": [
-            {
-              "id": "is-message-check",
-              "leftValue": "={{ $json.message }}",
-              "rightValue": "",
-              "operator": {
-                "type": "string",
-                "operation": "isNotEmpty"
-              }
-            }
-          ]
-        }
+        "jsCode": "// Extract message data from userbot webhook\nconst data = $input.first().json.body;\n\nreturn {\n  phone: data.wa_phone || '',\n  message_text: data.message || '',\n  message_type: data.message_type || 'text',\n  contact_name: data.contact_name || '',\n  timestamp: data.timestamp || new Date().toISOString(),\n  message_id: data.message_id || Date.now().toString(),\n  chat_id: data.wa_id || '',\n  is_group: false, // Всегда false, так как в сервисе мы фильтруем групповые сообщения\n  has_media: data.has_media || false,\n  lead_id: data.lead_id || null,\n  direction: data.direction || 'incoming'\n};"
       },
-      "id": "validate-whatsapp-node",
-      "name": "Validate WhatsApp Message",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
-      "position": [460, 600]
-    },
-    {
-      "parameters": {
-        "jsCode": "// Extract message data from userbot webhook\nconst data = $input.first().json;\n\n// Clean phone number (remove @ and other symbols)\nconst cleanPhone = data.from?.replace(/[@\\s-]/g, '') || '';\n\nreturn {\n  phone: cleanPhone,\n  message_text: data.message || '',\n  message_type: 'text',\n  contact_name: data.contact_name || data.pushname || '',\n  timestamp: data.timestamp || Date.now(),\n  message_id: data.id || Date.now().toString(),\n  chat_id: data.from || '',\n  is_group: data.isGroup || false\n};"
-      },
-      "id": "extract-whatsapp-node",
+      "id": "0522ab03-c97c-4bcf-8cf5-9672f42b33ba",
       "name": "Extract WhatsApp Data",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [680, 600]
+      "position": [
+        -1360,
+        160
+      ]
     },
     {
       "parameters": {
@@ -176,184 +330,39 @@
         "schema": {
           "__rl": true,
           "value": "public",
-          "mode": "list"
+          "mode": "list",
+          "cachedResultName": "public"
         },
         "table": {
           "__rl": true,
           "value": "leads",
-          "mode": "list"
+          "mode": "list",
+          "cachedResultName": "leads"
         },
         "where": {
           "values": [
             {
               "column": "phone",
-              "condition": "equal",
               "value": "={{ $json.phone }}"
             }
           ]
         },
         "options": {}
       },
-      "id": "find-lead-node",
+      "id": "3e350ace-8268-473a-ad99-1a2946106ecf",
       "name": "Find Lead in Database",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
-      "position": [900, 600],
+      "position": [
+        -1140,
+        160
+      ],
       "credentials": {
         "postgres": {
-          "id": "postgres-credentials",
-          "name": "PostgreSQL Main DB"
+          "id": "fnp0aoTITqNjEjvW",
+          "name": "Postgres account"
         }
       }
-    },
-    {
-      "parameters": {
-        "operation": "insert",
-        "schema": {
-          "__rl": true,
-          "value": "public",
-          "mode": "list"
-        },
-        "table": {
-          "__rl": true,
-          "value": "chat_history",
-          "mode": "list"
-        },
-        "columns": {
-          "mappingMode": "defineBelow",
-          "value": {
-            "lead_id": "={{ $('Find Lead in Database').first().json.id }}",
-            "phone": "={{ $('Extract WhatsApp Data').first().json.phone }}",
-            "message_text": "={{ $('Extract WhatsApp Data').first().json.message_text }}",
-            "message_type": "={{ $('Extract WhatsApp Data').first().json.message_type }}",
-            "direction": "incoming",
-            "created_at": "={{ new Date().toISOString() }}"
-          }
-        }
-      },
-      "id": "save-message-node",
-      "name": "Save Message to Database",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.4,
-      "position": [1120, 600],
-      "credentials": {
-        "postgres": {
-          "id": "postgres-credentials",
-          "name": "PostgreSQL Main DB"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "string": [
-            {
-              "value1": "={{ $('Find Lead in Database').first().json.classification_status }}",
-              "value2": "complete",
-              "operation": "equal"
-            }
-          ]
-        }
-      },
-      "id": "check-classification-node",
-      "name": "Check Classification Status",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
-      "position": [1340, 600]
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "https://api.openai.com/v1/chat/completions",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Content-Type",
-              "value": "application/json"
-            },
-            {
-              "name": "Authorization",
-              "value": "Bearer YOUR_OPENAI_API_KEY"
-            }
-          ]
-        },
-        "sendBody": true,
-        "bodyParameters": {
-          "parameters": [
-            {
-              "name": "model",
-              "value": "gpt-4"
-            },
-            {
-              "name": "messages",
-              "value": "={{ [ { \"role\": \"system\", \"content\": \"Ты AI-классификатор для определения потребностей клиентов. Твоя задача через естественный диалог определить: 1. Размер компании клиента 2. Предполагаемый бюджет проекта 3. Потребности и ожидания от сотрудничества 4. Срочность решения задачи. Важно: НЕ используй анкеты и структурированные вопросы. Веди живое общение, но мягко направляй разговор к получению нужной информации.\" }, { \"role\": \"user\", \"content\": $('Extract WhatsApp Data').first().json.message_text } ] }}"
-            },
-            {
-              "name": "max_tokens",
-              "value": 500
-            },
-            {
-              "name": "temperature",
-              "value": 0.7
-            }
-          ]
-        }
-      },
-      "id": "ai-classifier-node",
-      "name": "AI Classifier",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [1560, 500]
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "https://api.openai.com/v1/chat/completions",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Content-Type",
-              "value": "application/json"
-            },
-            {
-              "name": "Authorization",
-              "value": "Bearer YOUR_OPENAI_API_KEY"
-            }
-          ]
-        },
-        "sendBody": true,
-        "bodyParameters": {
-          "parameters": [
-            {
-              "name": "model",
-              "value": "gpt-4"
-            },
-            {
-              "name": "messages",
-              "value": "={{ [ { \"role\": \"system\", \"content\": \"Ты AI-продавец. Твоя задача - вести продажи и назначать встречи. У тебя есть вся информация о клиенте из предыдущего диалога. Фокусируйся на: 1. Презентации решений под потребности клиента 2. Работе с возражениями 3. Закрытии на встречу. Будь настойчивым, но тактичным.\" }, { \"role\": \"user\", \"content\": $('Extract WhatsApp Data').first().json.message_text } ] }}"
-            },
-            {
-              "name": "max_tokens",
-              "value": 500
-            },
-            {
-              "name": "temperature",
-              "value": 0.7
-            }
-          ]
-        }
-      },
-      "id": "ai-sales-node",
-      "name": "AI Sales Agent",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [1560, 700]
     },
     {
       "parameters": {
@@ -380,23 +389,30 @@
               "value": "={{ $json.choices[0].message.content }}"
             }
           ]
-        }
+        },
+        "options": {}
       },
-      "id": "send-ai-response-node",
+      "id": "2cc0f773-ca61-48ca-8b80-bae2193d1f74",
       "name": "Send AI Response",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1780, 600]
+      "position": [
+        -1580,
+        620
+      ]
     },
     {
       "parameters": {
         "jsCode": "// Detect meeting request keywords\nconst messageText = $('Extract WhatsApp Data').first().json.message_text.toLowerCase();\nconst aiResponse = $json.choices[0].message.content.toLowerCase();\n\nconst meetingKeywords = [\n  'встреча', 'встретиться', 'созвон', 'звонок', \n  'демо', 'презентация', 'да', 'согласен', \n  'подходит', 'договорились', 'записать'\n];\n\nconst needsMeeting = meetingKeywords.some(keyword => \n  messageText.includes(keyword) || aiResponse.includes(keyword)\n);\n\nreturn {\n  needs_meeting: needsMeeting,\n  client_message: messageText,\n  ai_response: aiResponse\n};"
       },
-      "id": "detect-meeting-node",
+      "id": "045c73e2-3a2f-470c-b2f7-d8513b74efe2",
       "name": "Detect Meeting Request",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2000, 600]
+      "position": [
+        -1360,
+        620
+      ]
     },
     {
       "parameters": {
@@ -408,23 +424,30 @@
               "operation": "equal"
             }
           ]
-        }
+        },
+        "options": {}
       },
-      "id": "check-meeting-node",
+      "id": "6c132f4e-ddf9-4a9a-a135-91cb89bd09e4",
       "name": "Check Meeting Needed",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [2220, 600]
+      "position": [
+        -1140,
+        620
+      ]
     },
     {
       "parameters": {
         "jsCode": "// Calculate next available meeting slot\nconst now = new Date();\nlet nextSlot = new Date(now);\n\n// If it's after 6 PM, schedule for next day\nif (now.getHours() >= 18) {\n  nextSlot.setDate(nextSlot.getDate() + 1);\n}\n\n// Set to 10 AM\nnextSlot.setHours(10, 0, 0, 0);\n\n// Skip weekends\nwhile (nextSlot.getDay() === 0 || nextSlot.getDay() === 6) {\n  nextSlot.setDate(nextSlot.getDate() + 1);\n}\n\nconst endTime = new Date(nextSlot.getTime() + 60 * 60 * 1000);\n\nreturn {\n  start_time: nextSlot.toISOString(),\n  end_time: endTime.toISOString(),\n  formatted_time: nextSlot.toLocaleString('ru-RU', {\n    weekday: 'long',\n    day: 'numeric',\n    month: 'long',\n    hour: '2-digit',\n    minute: '2-digit'\n  })\n};"
       },
-      "id": "calculate-time-node",
+      "id": "6b5191e0-e10d-43d1-ac0e-4bdfe8c258e7",
       "name": "Calculate Meeting Time",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2440, 500]
+      "position": [
+        -920,
+        620
+      ]
     },
     {
       "parameters": {
@@ -460,19 +483,17 @@
               "value": "={{ { \"dateTime\": $('Calculate Meeting Time').first().json.end_time, \"timeZone\": \"Europe/Moscow\" } }}"
             }
           ]
-        }
+        },
+        "options": {}
       },
-      "id": "create-event-node",
+      "id": "99405042-a770-4989-be60-22858c59b569",
       "name": "Create Calendar Event",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [2440, 600],
-      "credentials": {
-        "googleOAuth2Api": {
-          "id": "google-oauth-credentials",
-          "name": "Google OAuth2"
-        }
-      }
+      "position": [
+        -700,
+        620
+      ]
     },
     {
       "parameters": {
@@ -499,13 +520,17 @@
               "value": "={{ `Отлично! Встреча назначена на ${$('Calculate Meeting Time').first().json.formatted_time}.\\n\\nВы получите приглашение на почту.\\n\\nДо встречи! 👋` }}"
             }
           ]
-        }
+        },
+        "options": {}
       },
-      "id": "confirm-meeting-node",
+      "id": "d8f12089-3071-4ae0-b1ef-4724fff4b83c",
       "name": "Send Meeting Confirmation",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [2660, 600]
+      "position": [
+        -480,
+        520
+      ]
     },
     {
       "parameters": {
@@ -520,36 +545,569 @@
           "value": "leads",
           "mode": "list"
         },
-        "where": {
-          "values": [
-            {
-              "column": "phone",
-              "condition": "equal",
-              "value": "={{ $('Extract WhatsApp Data').first().json.phone }}"
-            }
-          ]
-        },
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
             "status": "meeting_scheduled",
-            "meeting_scheduled": true,
-            "meeting_time": "={{ $('Calculate Meeting Time').first().json.start_time }}",
-            "updated_at": "={{ new Date().toISOString() }}"
-          }
-        }
+            "updated_at": "={{ new Date().toISOString() }}",
+            "id": 0,
+            "amocrm_id": 0,
+            "ai_score": 0,
+            "pipeline_id": 0,
+            "stage_id": 0,
+            "responsible_user_id": 0
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "amocrm_id",
+              "displayName": "amocrm_id",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "name",
+              "displayName": "name",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "wa_id",
+              "displayName": "wa_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "budget",
+              "displayName": "budget",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "product_interest",
+              "displayName": "product_interest",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "notes",
+              "displayName": "notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "ai_classification",
+              "displayName": "ai_classification",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "object",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "ai_score",
+              "displayName": "ai_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "classification_stage",
+              "displayName": "classification_stage",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "pipeline_id",
+              "displayName": "pipeline_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "stage_id",
+              "displayName": "stage_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "responsible_user_id",
+              "displayName": "responsible_user_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "created_at",
+              "displayName": "created_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "updated_at",
+              "displayName": "updated_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
       },
-      "id": "update-status-node",
+      "id": "8295ad4c-25fd-4d8c-a72a-627e5694fca3",
       "name": "Update Lead Status",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
-      "position": [2660, 700],
+      "position": [
+        -480,
+        720
+      ],
       "credentials": {
         "postgres": {
-          "id": "postgres-credentials",
-          "name": "PostgreSQL Main DB"
+          "id": "fnp0aoTITqNjEjvW",
+          "name": "Postgres account"
         }
       }
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4.1-nano",
+          "mode": "list",
+          "cachedResultName": "gpt-4.1-nano"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        -80,
+        400
+      ],
+      "id": "32d48b30-f40c-42ee-9aa2-b6fdd486e2ae",
+      "name": "OpenAI Chat Model",
+      "credentials": {
+        "openAiApi": {
+          "id": "0AaWvDVkoyxlCCJv",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.messages }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "=Ты AI-классификатор для определения потребностей клиентов. Твоя задача через естественный диалог определить: 1. Размер компании клиента 2. Предполагаемый бюджет проекта 3. Потребности и ожидания от сотрудничества 4. Срочность решения задачи. Важно: НЕ используй анкеты и структурированные вопросы. Веди живое общение, но мягко направляй разговор к получению нужной информации. Каждое сообщение делай как можно короче чтобы не потерять сути, не будь слишком услужлив, твоя задача писать как человек\nПодготовь ответ на основе истории сообщений\n### Профили клиентов\n**ИДЕАЛЬНЫЙ:**\n- Малый/средний бизнес 10-100 сотрудников\n- Есть клиентский поток\n- Много рутинных операций\n- Бюджет \n- Планы роста\n\n**ПЕРСПЕКТИВНЫЙ:**\n- Микробизнес 5-10 человек\n- Стабильный поток клиентов\n- Готов автоматизировать\n- Бюджет \n\n**НЕ ЦЕЛЕВОЙ:**\n- Менее 5 сотрудников\n- Бюджет \n- Разовые задачи\n- Ищет бесплатное\n\n### Вопросы квалификации\n**БИЗНЕС:**\n- Сколько клиентов в месяц?\n- Как принимаете заявки?\n- Сколько времени тратите на обработку?\n- Теряете ли клиентов из-за медленного ответа?\n\n**ПРОЦЕССЫ:**\n- Как обрабатываете заявки сейчас?\n- Кто отвечает клиентам?\n- Есть ли CRM/база клиентов?\n- Что занимает больше всего времени?\n\n**ПЛАНЫ:**\n- Хотите увеличить поток клиентов?\n- Когда планируете автоматизацию?\n- Какой бюджет рассматриваете?\n\n### Классификация\n**ГОРЯЧИЙ (HOT):**\n- Активно ищет решение\n- Есть сроки внедрения\n- Бюджет определен\n- Готов начать быстро\n\n**ТЕПЛЫЙ (WARM):**\n- Изучает варианты\n- Понимает потребность\n- Планирует в 1-3 месяца\n- Готов к презентации\n\n**ХОЛОДНЫЙ (COLD):**\n- Просто интересуется\n- Нет срочности\n- Неопределенный бюджет\n- Требует прогрева\nПродолжай общение пока и уточняй пока не сможешь определить ВСЕ ЧТО НЕОБХОДИМО ДЛЯ КВАЛИФИКАЦИИ Верни JSON \n{\n  is_qualified: true/false,\n  qualification_rate: hot/warm/cold/null,\n  note: '',(опционально, только если клиент квалифицирован)\n  message: 'сообщение для клиента если он не квалифицирован или саммари для продавца если квалифицирован'\n} "
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [
+        -40,
+        160
+      ],
+      "id": "86aeeca0-93a6-4928-8fad-7e2100182b1d",
+      "name": "AI Agent qualify"
+    },
+    {
+      "parameters": {
+        "url": "=https://{{ $json.body[\"account[subdomain]\"] }}.amocrm.ru/api/v4/leads/{{ $json.body[\"leads[status][0][id]\"] }}?with=contacts",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsImp0aSI6ImY1ZmI4NGViZmUyNWJmMDcyYTk4ZGJhODY3MTQ0OWE0ZjUyN2ZjZDBlOWI1MmNiOWRlNTZhYWY4MmQxODhkOWFiNjc1YTljNDYwYTRiZGJjIn0.eyJhdWQiOiI4NWE2NDljOS1hODBlLTQ5MWYtOWI1Ny03MTIxM2RmYTllZGEiLCJqdGkiOiJmNWZiODRlYmZlMjViZjA3MmE5OGRiYTg2NzE0NDlhNGY1MjdmY2QwZTliNTJjYjlkZTU2YWFmODJkMTg4ZDlhYjY3NWE5YzQ2MGE0YmRiYyIsImlhdCI6MTc0OTE3MjkzMCwibmJmIjoxNzQ5MTcyOTMwLCJleHAiOjE3NTEwNjg4MDAsInN1YiI6IjEyNTkzNzk0IiwiZ3JhbnRfdHlwZSI6IiIsImFjY291bnRfaWQiOjMyNDcwNzUwLCJiYXNlX2RvbWFpbiI6ImFtb2NybS5ydSIsInZlcnNpb24iOjIsInNjb3BlcyI6WyJjcm0iLCJmaWxlcyIsImZpbGVzX2RlbGV0ZSIsIm5vdGlmaWNhdGlvbnMiLCJwdXNoX25vdGlmaWNhdGlvbnMiXSwiaGFzaF91dWlkIjoiYjFmNTFmZDEtMmJkMy00OGNlLWJiZTctNGQwOTYyYzUyNTBkIiwiYXBpX2RvbWFpbiI6ImFwaS1iLmFtb2NybS5ydSJ9.Of3HLuPF4UetP2WG0YdeVqK0_EhhrGSyjYS6UT4d7D7YF0oUgqeeAas5usa89x6uxVEDqFD0VzKV_58Mq5-0e6HZ2zaMNTe_IcMDmc_mdKTOmxEThnThtW0_9t8lF48LX3cMf4vR9FgD2LQBYky3Rd7uMlkrpOvhQOszc0I9XeunzpXr7L3OAVcHVkm9ZEmyyLv0iJpH0jTrKgSvEoLZlf1Sy0DgKdXU7kEsO28eHWv0easRRD3jxO-jGQ1OSI_yEsHpledrypQxIJejxFDIImSUp748I-ywEmZiFQ562mIcFXK32sPWtVLehGvAKgN02Joo-Td3I7LAtykWA4I9Aw"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1360,
+        -300
+      ],
+      "id": "00afbba0-fa33-475e-97d4-9c8a6e5784fe",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "url": "=https://{{ $('AmoCRM Webhook').item.json.body['account[subdomain]'] }}.amocrm.ru/api/v4/contacts/{{ $json._embedded.contacts[0].id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsImp0aSI6ImY1ZmI4NGViZmUyNWJmMDcyYTk4ZGJhODY3MTQ0OWE0ZjUyN2ZjZDBlOWI1MmNiOWRlNTZhYWY4MmQxODhkOWFiNjc1YTljNDYwYTRiZGJjIn0.eyJhdWQiOiI4NWE2NDljOS1hODBlLTQ5MWYtOWI1Ny03MTIxM2RmYTllZGEiLCJqdGkiOiJmNWZiODRlYmZlMjViZjA3MmE5OGRiYTg2NzE0NDlhNGY1MjdmY2QwZTliNTJjYjlkZTU2YWFmODJkMTg4ZDlhYjY3NWE5YzQ2MGE0YmRiYyIsImlhdCI6MTc0OTE3MjkzMCwibmJmIjoxNzQ5MTcyOTMwLCJleHAiOjE3NTEwNjg4MDAsInN1YiI6IjEyNTkzNzk0IiwiZ3JhbnRfdHlwZSI6IiIsImFjY291bnRfaWQiOjMyNDcwNzUwLCJiYXNlX2RvbWFpbiI6ImFtb2NybS5ydSIsInZlcnNpb24iOjIsInNjb3BlcyI6WyJjcm0iLCJmaWxlcyIsImZpbGVzX2RlbGV0ZSIsIm5vdGlmaWNhdGlvbnMiLCJwdXNoX25vdGlmaWNhdGlvbnMiXSwiaGFzaF91dWlkIjoiYjFmNTFmZDEtMmJkMy00OGNlLWJiZTctNGQwOTYyYzUyNTBkIiwiYXBpX2RvbWFpbiI6ImFwaS1iLmFtb2NybS5ydSJ9.Of3HLuPF4UetP2WG0YdeVqK0_EhhrGSyjYS6UT4d7D7YF0oUgqeeAas5usa89x6uxVEDqFD0VzKV_58Mq5-0e6HZ2zaMNTe_IcMDmc_mdKTOmxEThnThtW0_9t8lF48LX3cMf4vR9FgD2LQBYky3Rd7uMlkrpOvhQOszc0I9XeunzpXr7L3OAVcHVkm9ZEmyyLv0iJpH0jTrKgSvEoLZlf1Sy0DgKdXU7kEsO28eHWv0easRRD3jxO-jGQ1OSI_yEsHpledrypQxIJejxFDIImSUp748I-ywEmZiFQ562mIcFXK32sPWtVLehGvAKgN02Joo-Td3I7LAtykWA4I9Aw"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -920,
+        -300
+      ],
+      "id": "3cc78a68-8ac9-4f81-a118-6ccc7586fd4b",
+      "name": "HTTP Request1"
+    },
+    {
+      "parameters": {
+        "jsCode": "return {json: JSON.parse($input.first().json.data)}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1140,
+        -300
+      ],
+      "id": "9785517c-8b2c-4f0b-9d1b-3f49e66ad432",
+      "name": "extract lead"
+    },
+    {
+      "parameters": {
+        "jsCode": "return JSON.parse($input.first().json.data)"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -700,
+        -300
+      ],
+      "id": "355741f5-fcf8-412d-951a-346b758fecb3",
+      "name": "extract contact"
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "conversations",
+          "mode": "list",
+          "cachedResultName": "conversations"
+        },
+        "where": {
+          "values": [
+            {
+              "column": "lead_id",
+              "value": "={{ $json.id }}"
+            }
+          ]
+        },
+        "sort": {
+          "values": [
+            {
+              "column": "created_at",
+              "direction": "DESC"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -700,
+        160
+      ],
+      "id": "e61662a1-a4bd-40fe-9b64-1c2e0c45cbb3",
+      "name": "get messages",
+      "credentials": {
+        "postgres": {
+          "id": "fnp0aoTITqNjEjvW",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Convert messages to AI format\nconst inputData = $input.first().json.data;\n\n// Сортируем сообщения по времени\n\n// Преобразуем в формат для AI\nconst messages = inputData.map(msg => ({\n  role: msg.direction === 'incoming' ? 'user' : 'assistant',\n  content: msg.content\n}));\n\n\n// Формируем финальный объект\nreturn {\n  json: {\n    lead_id: inputData[0].lead_id,\n    phone: $('Find Lead in Database').first().json.phone,\n    messages: messages\n  }\n  \n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -260,
+        160
+      ],
+      "id": "8287e0ed-b573-4bb4-b128-8f6e9099e1fb",
+      "name": "Code"
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        -480,
+        160
+      ],
+      "id": "677956d6-0ded-4fbe-8fe6-c268decab73b",
+      "name": "Aggregate"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://api:3000/whatsapp/welcome",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "wa_id",
+              "value": "={{ $('Code').item.json.phone }}"
+            },
+            {
+              "name": "message",
+              "value": "={{ $json.output.message }}"
+            },
+            {
+              "name": "=id",
+              "value": "={{ $('Code').item.json.lead_id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "7707b276-9292-46e8-9921-de5798e2d427",
+      "name": "Send Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        776,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "DO\n$$\nDECLARE\n    tabname text;\nBEGIN\n    FOR tabname IN\n        SELECT tablename\n        FROM pg_tables\n        WHERE schemaname = 'public'\n    LOOP\n        EXECUTE 'DELETE FROM public.' || quote_ident(tabname) || ' CASCADE';\n    END LOOP;\nEND;\n$$;\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -2060,
+        -440
+      ],
+      "id": "322a4dfd-6d42-499d-b75a-783f03b4e72b",
+      "name": "Postgres",
+      "credentials": {
+        "postgres": {
+          "id": "fnp0aoTITqNjEjvW",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\n  \"is_qualified\": true,\n  \"qualification_rate\": \"hot\",\n  \"note\": \"Клиент заинтересован и готов к покупке\",\n  \"message\": \"Здравствуйте! Могу уточнить, что именно вас интересует?\"\n}\n"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.2,
+      "position": [
+        140,
+        380
+      ],
+      "id": "d85b21a7-7459-4ac3-8930-4c80a6ffff8d",
+      "name": "Structured Output Parser"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "7e7cbb99-fb1b-4901-a424-e7f1805a43ea",
+              "leftValue": "={{ $json.output.is_qualified }}",
+              "rightValue": "={{ true }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        340,
+        180
+      ],
+      "id": "716bcac1-b32f-447f-9e2d-be78e635aadd",
+      "name": "Qualified"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "66d66ae6-041b-4ca7-9e43-c9ea22cb4f1f",
+              "leftValue": "={{ $json.ai_classification }}",
+              "rightValue": "=''",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "367872ad-81e5-46b5-90cb-5cc9764315d1",
+              "leftValue": "={{ $json.ai_score }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -920,
+        160
+      ],
+      "id": "c0b89fc4-ccee-4b93-af25-6fa6ea8f1dc9",
+      "name": "is_qualified"
     }
   ],
   "connections": {
@@ -557,52 +1115,14 @@
       "main": [
         [
           {
-            "node": "Validate Lead Data",
+            "node": "HTTP Request",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Validate Lead Data": {
-      "main": [
-        [
-          {
-            "node": "Extract Lead Data",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Extract Lead Data": {
-      "main": [
-        [
-          {
-            "node": "Save Lead to PostgreSQL",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Send Welcome WhatsApp",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "WhatsApp Webhook": {
-      "main": [
-        [
-          {
-            "node": "Validate WhatsApp Message",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Validate WhatsApp Message": {
+    "WhatsApp Userbot Webhook": {
       "main": [
         [
           {
@@ -628,58 +1148,7 @@
       "main": [
         [
           {
-            "node": "Save Message to Database",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Save Message to Database": {
-      "main": [
-        [
-          {
-            "node": "Check Classification Status",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Check Classification Status": {
-      "main": [
-        [
-          {
-            "node": "AI Sales Agent",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "AI Classifier",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "AI Classifier": {
-      "main": [
-        [
-          {
-            "node": "Send AI Response",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "AI Sales Agent": {
-      "main": [
-        [
-          {
-            "node": "Send AI Response",
+            "node": "is_qualified",
             "type": "main",
             "index": 0
           }
@@ -745,15 +1214,150 @@
           }
         ]
       ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent qualify",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent qualify": {
+      "main": [
+        [
+          {
+            "node": "Qualified",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "extract lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request1": {
+      "main": [
+        [
+          {
+            "node": "extract contact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "extract lead": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "extract contact": {
+      "main": [
+        [
+          {
+            "node": "Save Lead to PostgreSQL",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send Welcome WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get messages": {
+      "main": [
+        [
+          {
+            "node": "Aggregate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "AI Agent qualify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "AI Agent qualify",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Qualified": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Send Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "is_qualified": {
+      "main": [
+        [],
+        [
+          {
+            "node": "get messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "pinData": {},
-  "settings": {
-    "executionOrder": "v1"
-  },
-  "staticData": null,
-  "tags": [],
-  "triggerCount": 2,
-  "updatedAt": "2025-06-06T12:00:00.000Z",
-  "versionId": "1"
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "153a70e05f81f246b19609cee48a90b90798fd47a2d93526a26c89b4d31e1d09"
+  }
 }
