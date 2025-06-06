@@ -143,10 +143,10 @@ class WhatsAppService {
       // Получаем номер телефона правильным способом
       const phoneNumber = contact.id.user || contact.number;
 
-      // Проверяем, есть ли лид с таким номером
+      // Проверяем, есть ли лид с таким номером (только по phone)
       const leadResult = await db.query(
-        'SELECT * FROM leads WHERE wa_id = $1 OR phone = $2',
-        [message.from, phoneNumber]
+        'SELECT * FROM leads WHERE phone = $1',
+        [phoneNumber]
       );
 
       let leadId = null;
@@ -156,19 +156,15 @@ class WhatsAppService {
 
       // Сохраняем сообщение в БД
       await this.saveMessage({
-        wa_id: message.from,
-        wa_phone: phoneNumber,
         message: message.body,
         message_type: message.type,
         timestamp: message.timestamp,
-        has_media: message.hasMedia,
-        media_url: message.hasMedia ? await this.saveMedia(message) : null
+        has_media: message.hasMedia
       }, 'incoming', leadId);
 
       // Отправляем в n8n для обработки AI
       await this.sendToN8n({
-        wa_id: message.from,
-        wa_phone: phoneNumber,
+        phone: phoneNumber,
         message: message.body,
         lead_id: leadId,
         direction: 'incoming',
@@ -188,15 +184,17 @@ class WhatsAppService {
 
   async logOutgoingMessage(message) {
     try {
+      const contact = await this.client.getContactById(message.to);
+      const phoneNumber = contact.id.user || contact.number;
+      
       const leadResult = await db.query(
-        'SELECT id FROM leads WHERE wa_id = $1',
-        [message.to]
+        'SELECT id FROM leads WHERE phone = $1',
+        [phoneNumber]
       );
 
       const leadId = leadResult.rows.length > 0 ? leadResult.rows[0].id : null;
 
       await this.saveMessage({
-        wa_id: message.to,
         message: message.body,
         message_type: message.type,
         timestamp: message.timestamp,
@@ -227,7 +225,6 @@ class WhatsAppService {
 
         // Сохраняем в БД
         await this.saveMessage({
-          wa_id: waId,
           message,
           message_type: 'text',
           timestamp: sentMessage.timestamp
@@ -250,23 +247,9 @@ class WhatsAppService {
   async saveMessage(messageData, direction, leadId = null) {
     try {
       await db.query(
-        `INSERT INTO conversations 
-         (lead_id, platform, direction, message_type, content, metadata) 
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [
-          leadId,
-          'whatsapp',
-          direction,
-          messageData.message_type || 'text',
-          messageData.message,
-          JSON.stringify({
-            wa_id: messageData.wa_id,
-            wa_phone: messageData.wa_phone,
-            timestamp: messageData.timestamp,
-            has_media: messageData.has_media || false,
-            media_url: messageData.media_url || null
-          })
-        ]
+        `INSERT INTO conversations (lead_id, direction, content) 
+         VALUES ($1, $2, $3)`,
+        [leadId, direction, messageData.message]
       );
     } catch (error) {
       console.error('Error saving message to DB:', error);
@@ -330,7 +313,6 @@ class WhatsAppService {
       const sentMessage = await this.client.sendMessage(waId, media, { caption });
       
       await this.saveMessage({
-        wa_id: waId,
         message: caption || '[Media]',
         message_type: 'media',
         timestamp: sentMessage.timestamp
