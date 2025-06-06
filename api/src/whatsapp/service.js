@@ -15,17 +15,11 @@ class WhatsAppService {
   async initialize() {
     try {
       console.log('Initializing WhatsApp client...');
-      
-      // Проверяем, отключен ли WhatsApp
-      if (process.env.DISABLE_WHATSAPP === 'true') {
-        console.log('WhatsApp is disabled by environment variable');
-        return;
-      }
-      
+
       this.client = new Client({
-        authStrategy: new LocalAuth({ 
+        authStrategy: new LocalAuth({
           clientId: 'lead-bot',
-          dataPath: '/app/sessions'
+          dataPath: './sessions' // Изменено на относительный путь
         }),
         puppeteer: {
           headless: true,
@@ -39,12 +33,16 @@ class WhatsAppService {
             '--single-process',
             '--disable-gpu'
           ]
+        },
+        webVersionCache: {
+          type: 'remote',
+          remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html',
         }
       });
 
       this.setupEventHandlers();
       await this.client.initialize();
-      
+
     } catch (error) {
       console.error('Failed to initialize WhatsApp:', error);
       throw error;
@@ -58,10 +56,10 @@ class WhatsAppService {
       console.log('📱 WhatsApp QR Code Generated!');
       console.log('Scan this QR code with WhatsApp on your phone:');
       console.log('===========================================\n');
-      
+
       // Генерируем QR-код в терминале
       qrcodeTerminal.generate(qr, { small: true });
-      
+
       console.log('\n===========================================');
       console.log('Steps to connect:');
       console.log('1. Open WhatsApp on your phone');
@@ -84,6 +82,7 @@ class WhatsAppService {
 
     this.client.on('auth_failure', (msg) => {
       console.error('❌ WhatsApp authentication failure:', msg);
+      this.isReady = false;
     });
 
     this.client.on('disconnected', (reason) => {
@@ -103,12 +102,24 @@ class WhatsAppService {
         await this.logOutgoingMessage(message);
       }
     });
+
+    // Добавлено обработка ошибок загрузки
+    this.client.on('loading_screen', (percent, message) => {
+      console.log('Loading...', percent, message);
+    });
+
+    // Обработка изменения состояния
+    this.client.on('change_state', state => {
+      console.log('State changed:', state);
+    });
   }
 
   async reconnect() {
     console.log('Attempting to reconnect WhatsApp...');
     try {
-      await this.client.destroy();
+      if (this.client) {
+        await this.client.destroy();
+      }
       await this.initialize();
     } catch (error) {
       console.error('Reconnection failed:', error);
@@ -118,17 +129,24 @@ class WhatsAppService {
 
   async handleIncomingMessage(message) {
     try {
-      // Игнорируем статусные и групповые сообщения
-      if (message.from === 'status@broadcast' || message.isGroupMsg) return;
+      // Игнорируем статусные сообщения
+      if (message.isStatus || message.broadcast) return;
+
+      // Проверяем групповые сообщения используя правильное свойство
+      const chat = await message.getChat();
+      if (chat.isGroup) return;
 
       console.log('Incoming message from:', message.from, 'Content:', message.body);
 
       const contact = await message.getContact();
       
+      // Получаем номер телефона правильным способом
+      const phoneNumber = contact.id.user || contact.number;
+
       // Проверяем, есть ли лид с таким номером
       const leadResult = await db.query(
         'SELECT * FROM leads WHERE wa_id = $1 OR phone = $2',
-        [message.from, contact.number]
+        [message.from, phoneNumber]
       );
 
       let leadId = null;
@@ -139,22 +157,29 @@ class WhatsAppService {
       // Сохраняем сообщение в БД
       await this.saveMessage({
         wa_id: message.from,
-        wa_phone: contact.number,
+        wa_phone: phoneNumber,
         message: message.body,
         message_type: message.type,
-        timestamp: message.timestamp
+        timestamp: message.timestamp,
+        has_media: message.hasMedia,
+        media_url: message.hasMedia ? await this.saveMedia(message) : null
       }, 'incoming', leadId);
 
       // Отправляем в n8n для обработки AI
       await this.sendToN8n({
         wa_id: message.from,
-        wa_phone: contact.number,
+        wa_phone: phoneNumber,
         message: message.body,
         lead_id: leadId,
         direction: 'incoming',
-        contact_name: contact.name || contact.pushname,
-        timestamp: new Date().toISOString()
+        contact_name: contact.name || contact.pushname || phoneNumber,
+        timestamp: new Date().toISOString(),
+        has_media: message.hasMedia,
+        message_type: message.type
       });
+
+      // Отмечаем сообщение как прочитанное
+      await this.sendSeen(message.from);
 
     } catch (error) {
       console.error('Error handling WhatsApp message:', error);
@@ -174,7 +199,8 @@ class WhatsAppService {
         wa_id: message.to,
         message: message.body,
         message_type: message.type,
-        timestamp: message.timestamp
+        timestamp: message.timestamp,
+        has_media: message.hasMedia
       }, 'outgoing', leadId);
     } catch (error) {
       console.error('Error logging outgoing message:', error);
@@ -189,24 +215,29 @@ class WhatsAppService {
     let attempts = 0;
     while (attempts < this.retryAttempts) {
       try {
-        // Форматируем номер если нужно
-        const chatId = waId.includes('@c.us') ? waId : `${waId}@c.us`;
+        // Показываем статус "печатает"
+        await this.sendTyping(waId);
         
-        await this.client.sendMessage(chatId, message);
-        console.log(`Message sent to ${chatId}`);
+        // Небольшая задержка для естественности
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        // Отправляем сообщение
+        const sentMessage = await this.client.sendMessage(waId, message);
+        console.log(`Message sent to ${waId}`);
 
         // Сохраняем в БД
         await this.saveMessage({
-          wa_id: chatId,
+          wa_id: waId,
           message,
-          message_type: 'text'
+          message_type: 'text',
+          timestamp: sentMessage.timestamp
         }, 'outgoing', leadId);
 
-        return { success: true };
+        return { success: true, messageId: sentMessage.id };
       } catch (error) {
         attempts++;
         console.error(`Attempt ${attempts} failed:`, error.message);
-        
+
         if (attempts < this.retryAttempts) {
           await new Promise(resolve => setTimeout(resolve, this.retryDelay));
         } else {
@@ -231,7 +262,9 @@ class WhatsAppService {
           JSON.stringify({
             wa_id: messageData.wa_id,
             wa_phone: messageData.wa_phone,
-            timestamp: messageData.timestamp
+            timestamp: messageData.timestamp,
+            has_media: messageData.has_media || false,
+            media_url: messageData.media_url || null
           })
         ]
       );
@@ -242,7 +275,9 @@ class WhatsAppService {
 
   async sendToN8n(data) {
     try {
-      const n8nUrl = process.env.N8N_WEBHOOK_URL || 'http://n8n:5678/webhook/whatsapp-incoming';
+      const n8nUrl = process.env.N8N_WEBHOOK_URL + '/whatsapp-userbot-webhook';
+      console.log('Sending to n8n:', n8nUrl);
+      
       await axios.post(n8nUrl, data, {
         headers: { 'Content-Type': 'application/json' },
         timeout: 5000
@@ -253,23 +288,16 @@ class WhatsAppService {
     }
   }
 
-  async sendWelcomeMessage(waId, leadData) {
-    const templates = {
-      default: `Здравствуйте, ${leadData.name}! 👋
+  async sendWelcomeMessage(phoneNumber, message = '', lead_id) {
+    console.log('=== DEBUG: Welcome Message ===');
+    console.log('phoneNumber:', phoneNumber, 'type:', typeof phoneNumber);
+    console.log('lead_id:', lead_id, 'type:', typeof lead_id);
+    console.log('message:', message, 'type:', typeof message);
 
-
-Я ваш персональный консультант и готов помочь подобрать оптимальное решение для вашей компании.
-
-Расскажите, пожалуйста:
-• Какие процессы вы хотели бы автоматизировать?
-• Сколько клиентов обрабатываете в месяц?
-• Есть ли у вас CRM-система?
-
-Буду рад ответить на любые вопросы!`,
-    };
-
-    const template = templates[leadData.source] || templates.default;
-    await this.sendMessage(waId, template, leadData.id);
+    // Форматируем номер телефона для WhatsApp
+    const formattedNumber = this.formatPhoneNumber(phoneNumber);
+    
+    return await this.sendMessage(formattedNumber, message, lead_id);
   }
 
   async sendTyping(waId) {
@@ -287,6 +315,88 @@ class WhatsAppService {
       await chat.sendSeen();
     } catch (error) {
       console.error('Error sending seen state:', error);
+    }
+  }
+
+  // Новые методы для расширенной функциональности
+
+  async sendMedia(waId, mediaPath, caption = '', leadId = null) {
+    if (!this.isReady) {
+      throw new Error('WhatsApp client not ready');
+    }
+
+    try {
+      const media = MessageMedia.fromFilePath(mediaPath);
+      const sentMessage = await this.client.sendMessage(waId, media, { caption });
+      
+      await this.saveMessage({
+        wa_id: waId,
+        message: caption || '[Media]',
+        message_type: 'media',
+        timestamp: sentMessage.timestamp
+      }, 'outgoing', leadId);
+
+      return { success: true, messageId: sentMessage.id };
+    } catch (error) {
+      console.error('Error sending media:', error);
+      throw error;
+    }
+  }
+
+  async getContactInfo(waId) {
+    try {
+      const contact = await this.client.getContactById(waId);
+      return {
+        number: contact.number,
+        name: contact.name || contact.pushname,
+        isMyContact: contact.isMyContact,
+        profilePicUrl: await contact.getProfilePicUrl()
+      };
+    } catch (error) {
+      console.error('Error getting contact info:', error);
+      return null;
+    }
+  }
+
+  formatPhoneNumber(phoneNumber) {
+    // Удаляем все нецифровые символы
+    let cleaned = phoneNumber.replace(/\D/g, '');
+    
+    // Добавляем @c.us для WhatsApp ID
+    if (!cleaned.includes('@')) {
+      cleaned = cleaned + '@c.us';
+    }
+    
+    return cleaned;
+  }
+
+  async saveMedia(message) {
+    try {
+      if (message.hasMedia) {
+        const media = await message.downloadMedia();
+        // Здесь можно добавить логику сохранения медиа в файловую систему или облако
+        // Возвращаем путь или URL сохраненного файла
+        return null; // Заглушка
+      }
+    } catch (error) {
+      console.error('Error saving media:', error);
+      return null;
+    }
+  }
+
+  getStatus() {
+    return {
+      isReady: this.isReady,
+      hasQR: !!this.qrCode,
+      qrCode: this.qrCode
+    };
+  }
+
+  async destroy() {
+    if (this.client) {
+      await this.client.destroy();
+      this.client = null;
+      this.isReady = false;
     }
   }
 }

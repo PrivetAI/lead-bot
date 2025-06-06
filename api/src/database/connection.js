@@ -1,29 +1,54 @@
-// database/config.js
-require('dotenv').config();
+// database/connection.js
+const { Pool } = require('pg');
+const config = require('./config');
 
-const config = {
-    // Основные настройки подключения
-    host: process.env.DB_HOST || 'localhost',
-    port: process.env.DB_PORT || 5432,
-    user: process.env.DB_USER || 'postgres',
-    password: process.env.DB_PASSWORD || 'postgres',
-    database: process.env.DB_NAME || 'leads_db',
-    
-    // Настройки пользователя для n8n (используем того же пользователя)
-    n8nUser: process.env.DB_USER || 'leads_user',
-    n8nPassword: process.env.DB_PASSWORD || 'leads123',
-    
-    // Настройки пула соединений
-    pool: {
-        max: parseInt(process.env.DB_POOL_MAX) || 20,
-        min: parseInt(process.env.DB_POOL_MIN) || 0,
-        acquire: parseInt(process.env.DB_POOL_ACQUIRE) || 30000,
-        idle: parseInt(process.env.DB_POOL_IDLE) || 10000
-    },
-    
-    // SSL настройки (для продакшн)
-    ssl: process.env.NODE_ENV === 'production' ? false : false // Отключаем SSL для локального Docker
+// Создаем пул соединений
+const pool = new Pool({
+    host: config.host,
+    port: config.port,
+    user: config.user,
+    password: config.password,
+    database: config.database,
+    ssl: config.ssl,
+    max: config.pool.max,
+    min: config.pool.min,
+    acquireTimeoutMillis: config.pool.acquire,
+    idleTimeoutMillis: config.pool.idle
+});
+
+// Обработка ошибок подключения
+pool.on('error', (err, client) => {
+    console.error('Unexpected error on idle client', err);
+    process.exit(-1);
+});
+
+// Функция для выполнения запросов
+const query = async (text, params) => {
+    const client = await pool.connect();
+    try {
+        const result = await client.query(text, params);
+        return result;
+    } catch (error) {
+        console.error('Database query error:', error);
+        throw error;
+    } finally {
+        client.release();
+    }
 };
 
-module.exports = config;
-EOF
+// Функция для получения клиента (для транзакций)
+const getClient = async () => {
+    return await pool.connect();
+};
+
+// Функция для закрытия пула
+const end = async () => {
+    await pool.end();
+};
+
+module.exports = {
+    query,
+    getClient,
+    end,
+    pool
+};

@@ -1,8 +1,5 @@
-#!/usr/bin/env node
-
-// scripts/init-database.js
-const DatabaseInitializer = require('../database/init');
-const config = require('../database/config');
+const DatabaseInitializer = require('../src/database/init');
+const config = require('../src/database/config');
 const { Pool } = require('pg');
 
 // Парсинг аргументов командной строки
