@@ -48,4 +48,7 @@ AI-продавец - ведение продаж и назначение вст
 ОБЩИЕ РЕКОМЕНДАЦИИ:
 не усложнять проект, не добавлять лишний функционал, поддерживать краткий код и изолированные компоненты системы удобные для поддержки 
 рекомендуется кратко логировать действия компонентов системы в консоли
-
+всегда использовать актуальную документацию https://www.amocrm.ru/developers/content/crm_platform/api-reference 
+https://docs.n8n.io/
+https://docs.n8n.io/integrations/builtin/app-nodes/n8n-nodes-base.googlecalendar/
+https://github.com/pedroslopez/whatsapp-web.js/
