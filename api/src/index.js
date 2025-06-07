@@ -54,7 +54,6 @@ app.get('/health', async (req, res) => {
   }
 });
 
-
 // Статистика
 app.get('/stats', async (req, res) => {
   try {
@@ -70,11 +69,24 @@ app.get('/stats', async (req, res) => {
        WHERE created_at > NOW() - INTERVAL '24 hours'`
     );
     
+    // Дополнительная статистика
+    const messagesByAgent = await db.query(
+      `SELECT ai_agent, COUNT(*) FROM chat_history 
+       WHERE ai_agent IS NOT NULL 
+       GROUP BY ai_agent`
+    );
+    
+    const hotLeads = await db.query(
+      `SELECT COUNT(*) FROM leads WHERE classification = 'hot'`
+    );
+    
     res.json({
       total_leads: parseInt(totalLeads.rows[0].count),
+      hot_leads: parseInt(hotLeads.rows[0].count),
       by_status: leadsByStatus.rows,
       by_classification: leadsByClassification.rows,
-      messages_24h: parseInt(messagesLast24h.rows[0].count)
+      messages_24h: parseInt(messagesLast24h.rows[0].count),
+      messages_by_agent: messagesByAgent.rows
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -118,6 +130,10 @@ async function startServer() {
       console.log('  GET  /health');
       console.log('  GET  /stats');
       console.log('  POST /whatsapp/send');
+      console.log('  POST /whatsapp/welcome');
+      console.log('  GET  /whatsapp/status');
+      console.log('  GET  /whatsapp/qr');
+      console.log('  POST /init-db');
     });
   } catch (error) {
     console.error('Failed to start server:', error);

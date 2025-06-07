@@ -6,7 +6,7 @@ const router = express.Router();
 // Отправка сообщения
 router.post('/send', async (req, res) => {
   try {
-    const { wa_id, phone, message, lead_id } = req.body;
+    const { wa_id, phone, message, lead_id, amocrm_id, ai_agent } = req.body;
     
     if (!whatsappService.isReady) {
       return res.status(503).json({ error: 'WhatsApp not ready' });
@@ -18,7 +18,10 @@ router.post('/send', async (req, res) => {
       return res.status(400).json({ error: 'Missing required fields: phone/wa_id and message' });
     }
 
-    await whatsappService.sendMessage(recipient, message, lead_id);
+    // Используем amocrm_id или lead_id
+    const leadIdToUse = amocrm_id || lead_id;
+    
+    await whatsappService.sendMessage(recipient, message, leadIdToUse, ai_agent);
     res.json({ success: true });
   } catch (error) {
     console.error('Send route error:', error);
@@ -29,10 +32,10 @@ router.post('/send', async (req, res) => {
 // Отправка приветственного сообщения
 router.post('/welcome', async (req, res) => {
   try {
-    const { wa_id, phone, message, id, lead_id } = req.body;
+    const { wa_id, phone, message, id, lead_id, amocrm_id } = req.body;
     
     const recipient = wa_id || phone;
-    const leadIdToUse = id || lead_id;
+    const leadIdToUse = amocrm_id || id || lead_id;
     
     if (!recipient || !message) {
       return res.status(400).json({ error: 'Missing required fields' });

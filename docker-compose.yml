@@ -45,8 +45,8 @@ services:
       - "5678:5678"
     environment:
       - N8N_BASIC_AUTH_ACTIVE=true
-      - N8N_BASIC_AUTH_USER=admin
-      - N8N_BASIC_AUTH_PASSWORD=password123
+      - N8N_BASIC_AUTH_USER=${N8N_BASIC_AUTH_USER:-admin}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_BASIC_AUTH_PASSWORD:-password123}
       - N8N_HOST=0.0.0.0
       - N8N_PORT=5678
       - N8N_PROTOCOL=http
@@ -60,6 +60,7 @@ services:
       - NODE_FUNCTION_ALLOW_BUILTIN=*
       - NODE_FUNCTION_ALLOW_EXTERNAL=*
       - N8N_DISABLE_NGROK=true
+      - WEBHOOK_URL=${WEBHOOK_URL:-http://localhost:5678}
     volumes:
       - n8n_data:/home/node/.n8n
       - ./n8n/workflows:/home/node/.n8n/workflows
@@ -88,8 +89,11 @@ services:
       - DB_NAME=leads_db
       - DB_USER=leads_user
       - DB_PASSWORD=leads123
-      - AMOCRM_API_KEY=${AMOCRM_API_KEY:-mock_key_123}
-      - AMOCRM_DOMAIN=${AMOCRM_DOMAIN:-mockdomain.amocrm.ru}
+      - RUNNING_IN_DOCKER=true
+      - N8N_WEBHOOK_URL=${N8N_WEBHOOK_URL:-http://n8n:5678/webhook}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - WHATSAPP_SESSION_NAME=lead-bot
+      - DISABLE_WHATSAPP=${DISABLE_WHATSAPP:-false}
     volumes:
       - ./api/sessions:/app/sessions
       - ./api/logs:/app/logs
@@ -105,19 +109,6 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-
-  # adminer:
-  #   image: adminer:latest
-  #   container_name: adminer
-  #   restart: unless-stopped
-  #   ports:
-  #     - "8080:8080"
-  #   environment:
-  #     ADMINER_DEFAULT_SERVER: postgres
-  #   depends_on:
-  #     - postgres
-  #   networks:
-  #     - lead_network
 
 volumes:
   postgres_data:

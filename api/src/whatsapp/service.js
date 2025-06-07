@@ -93,14 +93,16 @@ class WhatsAppService {
 
       const contact = await message.getContact();
       const phoneNumber = contact.id.user || contact.number || message.from.split('@')[0];
+      const waId = message.from;
 
       console.log('📩 Message from:', phoneNumber, ':', message.body);
 
+      // Ищем лида по телефону или wa_id
       let leadResult;
       try {
         leadResult = await db.query(
-          'SELECT id FROM leads WHERE phone = $1 OR phone = $2',
-          [phoneNumber, '+' + phoneNumber]
+          'SELECT id, amocrm_id FROM leads WHERE phone = $1 OR phone = $2 OR wa_id = $3',
+          [phoneNumber, '+' + phoneNumber, waId]
         );
       } catch (error) {
         console.error('Error querying lead:', error.message);
@@ -108,10 +110,13 @@ class WhatsAppService {
       }
 
       let leadId = null;
+      let amocrmId = null;
       if (leadResult.rows.length > 0) {
         leadId = leadResult.rows[0].id;
+        amocrmId = leadResult.rows[0].amocrm_id;
       }
 
+      // Сохраняем сообщение в БД
       try {
         await db.query(
           `INSERT INTO chat_history (lead_id, phone, message, direction) 
@@ -123,10 +128,13 @@ class WhatsAppService {
         console.error('Error saving to DB:', dbError);
       }
 
+      // Отправляем в n8n
       await this.sendToN8n({
         phone: phoneNumber,
+        wa_id: waId,
         message: message.body,
         lead_id: leadId,
+        amocrm_id: amocrmId,
         direction: 'incoming',
         contact_name: contact.name || contact.pushname || phoneNumber,
         timestamp: new Date().toISOString()
@@ -139,69 +147,70 @@ class WhatsAppService {
     }
   }
 
-async sendMessage(waId, message, leadId = null) {
-  if (!this.isReady) {
-    throw new Error('WhatsApp not ready');
-  }
+  async sendMessage(waId, message, leadId = null, aiAgent = null) {
+    if (!this.isReady) {
+      throw new Error('WhatsApp not ready');
+    }
 
-  try {
-    const formattedNumber = this.formatPhoneNumber(waId);
-    
-    await this.sendTyping(formattedNumber);
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
-    const sentMessage = await this.client.sendMessage(formattedNumber, message);
-    console.log(`✅ Message sent to ${formattedNumber}`);
-
-    const phoneNumber = formattedNumber.replace('@c.us', '');
-    
     try {
-      let dbLeadId = null;
+      const formattedNumber = this.formatPhoneNumber(waId);
       
-      if (!leadId) {
-        const leadResult = await db.query(
-          'SELECT id FROM leads WHERE phone = $1 OR phone = $2',
-          [phoneNumber, '+' + phoneNumber]
-        );
-        if (leadResult.rows.length > 0) {
-          dbLeadId = leadResult.rows[0].id;
-        }
-      } else {
-        // Проверяем как внутренний id
-        let leadResult = await db.query('SELECT id FROM leads WHERE id = $1', [leadId]);
+      await this.sendTyping(formattedNumber);
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      const sentMessage = await this.client.sendMessage(formattedNumber, message);
+      console.log(`✅ Message sent to ${formattedNumber}`);
+
+      const phoneNumber = formattedNumber.replace('@c.us', '');
+      
+      // Сохраняем в БД
+      try {
+        let dbLeadId = null;
         
-        if (leadResult.rows.length > 0) {
-          dbLeadId = leadId;
-        } else {
-          // Проверяем как внешний lead_id
-          leadResult = await db.query('SELECT id FROM leads WHERE lead_id = $1', [leadId]);
+        if (!leadId) {
+          const leadResult = await db.query(
+            'SELECT id FROM leads WHERE phone = $1 OR phone = $2 OR wa_id = $3',
+            [phoneNumber, '+' + phoneNumber, formattedNumber]
+          );
           if (leadResult.rows.length > 0) {
             dbLeadId = leadResult.rows[0].id;
           }
+        } else {
+          // Проверяем как внутренний id
+          let leadResult = await db.query('SELECT id FROM leads WHERE id = $1', [leadId]);
+          
+          if (leadResult.rows.length > 0) {
+            dbLeadId = leadId;
+          } else {
+            // Проверяем как amocrm_id
+            leadResult = await db.query('SELECT id FROM leads WHERE amocrm_id = $1', [leadId]);
+            if (leadResult.rows.length > 0) {
+              dbLeadId = leadResult.rows[0].id;
+            }
+          }
         }
+
+        if (dbLeadId) {
+          await db.query(
+            `INSERT INTO chat_history (lead_id, phone, message, direction, ai_agent) 
+             VALUES ($1, $2, $3, $4, $5)`,
+            [dbLeadId, phoneNumber, message, 'outgoing', aiAgent]
+          );
+          console.log('💾 Outgoing message saved to DB');
+        } else {
+          console.warn(`⚠️ Lead not found for phone ${phoneNumber}, leadId ${leadId}`);
+        }
+
+      } catch (dbError) {
+        console.error('Error saving outgoing message to DB:', dbError);
       }
 
-      if (dbLeadId) {
-        await db.query(
-          `INSERT INTO chat_history (lead_id, phone, message, direction) 
-           VALUES ($1, $2, $3, $4)`,
-          [dbLeadId, phoneNumber, message, 'outgoing']
-        );
-        console.log('💾 Outgoing message saved to DB');
-      } else {
-        console.warn(`⚠️ Lead not found for phone ${phoneNumber}, leadId ${leadId}. Message not saved to chat_history.`);
-      }
-
-    } catch (dbError) {
-      console.error('Error saving outgoing message to DB:', dbError);
+      return { success: true, messageId: sentMessage.id };
+    } catch (error) {
+      console.error('Send error:', error);
+      throw error;
     }
-
-    return { success: true, messageId: sentMessage.id };
-  } catch (error) {
-    console.error('Send error:', error);
-    throw error;
   }
-}
 
   async sendToN8n(data) {
     try {
