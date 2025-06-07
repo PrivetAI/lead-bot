@@ -3,19 +3,19 @@
 -- Таблица лидов
 CREATE TABLE IF NOT EXISTS leads (
     id SERIAL PRIMARY KEY,
-    amocrm_id INTEGER UNIQUE NOT NULL,  -- Внешний ID из amoCRM
+    amocrm_id VARCHAR(255) UNIQUE NOT NULL,  -- Внешний ID из amoCRM
     name VARCHAR(255) NOT NULL,
     phone VARCHAR(20) UNIQUE NOT NULL,
     email VARCHAR(255),
     wa_id VARCHAR(50),  -- WhatsApp ID формата phone@c.us
     status VARCHAR(50) DEFAULT 'new',
     
-    -- AI классификация
-    classification VARCHAR(20) CHECK (classification IN ('hot', 'warm', 'cold')),  -- hot/warm/cold
-    company_size VARCHAR(50),
-    budget_range VARCHAR(50),
+    -- AI классификация (убраны ограничения)
+    classification TEXT,  -- hot/warm/cold
+    company_size TEXT,
+    budget_range TEXT,
     needs TEXT,
-    urgency VARCHAR(50),  -- Срочность решения задачи
+    urgency TEXT,  -- Срочность решения задачи
     
     -- Дополнительная информация из amoCRM
     company_info TEXT,  -- JSON с информацией о компании
@@ -51,7 +51,7 @@ BEGIN
     NEW.updated_at = CURRENT_TIMESTAMP;
     RETURN NEW;
 END;
-$$ language 'plpgsql';
+$$ LANGUAGE plpgsql;
 
 DROP TRIGGER IF EXISTS update_leads_updated_at ON leads;
 CREATE TRIGGER update_leads_updated_at 

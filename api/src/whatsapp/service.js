@@ -84,68 +84,74 @@ class WhatsAppService {
     }
   }
 
-  async handleIncomingMessage(message) {
+// Исправленный метод поиска лида с нормализацией номера
+async handleIncomingMessage(message) {
+  try {
+    if (message.isStatus || message.broadcast) return;
+
+    const chat = await message.getChat();
+    if (chat.isGroup) return;
+
+    const contact = await message.getContact();
+    console.log('message from', contact.id.user, contact.number, message.from.split('@')[0])
+    const phoneNumber = contact.id.user || contact.number || message.from.split('@')[0];
+    const waId = message.from;
+
+    console.log('📩 Message from:', phoneNumber, ':', message.body);
+
+    const normalizedPhone = phoneNumber.replace(/^\+/, '');
+
+    let leadResult;
     try {
-      if (message.isStatus || message.broadcast) return;
-
-      const chat = await message.getChat();
-      if (chat.isGroup) return;
-
-      const contact = await message.getContact();
-      const phoneNumber = contact.id.user || contact.number || message.from.split('@')[0];
-      const waId = message.from;
-
-      console.log('📩 Message from:', phoneNumber, ':', message.body);
-
-      // Ищем лида по телефону или wa_id
-      let leadResult;
-      try {
-        leadResult = await db.query(
-          'SELECT id, amocrm_id FROM leads WHERE phone = $1 OR phone = $2 OR wa_id = $3',
-          [phoneNumber, '+' + phoneNumber, waId]
-        );
-      } catch (error) {
-        console.error('Error querying lead:', error.message);
-        leadResult = { rows: [] };
-      }
-
-      let leadId = null;
-      let amocrmId = null;
-      if (leadResult.rows.length > 0) {
-        leadId = leadResult.rows[0].id;
-        amocrmId = leadResult.rows[0].amocrm_id;
-      }
-
-      // Сохраняем сообщение в БД
-      try {
-        await db.query(
-          `INSERT INTO chat_history (lead_id, phone, message, direction) 
-           VALUES ($1, $2, $3, $4)`,
-          [leadId, phoneNumber, message.body, 'incoming']
-        );
-        console.log('💾 Message saved to DB');
-      } catch (dbError) {
-        console.error('Error saving to DB:', dbError);
-      }
-
-      // Отправляем в n8n
-      await this.sendToN8n({
-        phone: phoneNumber,
-        wa_id: waId,
-        message: message.body,
-        lead_id: leadId,
-        amocrm_id: amocrmId,
-        direction: 'incoming',
-        contact_name: contact.name || contact.pushname || phoneNumber,
-        timestamp: new Date().toISOString()
-      });
-
-      await this.sendSeen(message.from);
-
+      leadResult = await db.query(
+        'SELECT id, amocrm_id FROM leads WHERE phone = $1 OR wa_id = $2',
+        [normalizedPhone, waId]
+      );
     } catch (error) {
-      console.error('Error handling message:', error);
+      console.error('Error querying lead:', error.message);
+      leadResult = { rows: [] };
     }
+
+    let leadId = null;
+    let amocrmId = null;
+    if (leadResult.rows.length > 0) {
+      leadId = leadResult.rows[0].id;
+      amocrmId = leadResult.rows[0].amocrm_id;
+    }
+
+    // Сохраняем сообщение в БД
+    try {
+      await db.query(
+        `INSERT INTO chat_history (lead_id, phone, message, direction) 
+         VALUES ($1, $2, $3, $4)`,
+        [leadId, normalizedPhone, message.body, 'incoming']
+      );
+      console.log('💾 Message saved to DB');
+    } catch (dbError) {
+      console.error('Error saving to DB:', dbError);
+    }
+    await new Promise(resolve => setTimeout(resolve, 5000));
+    await this.sendSeen(message.from);
+    await new Promise(resolve => setTimeout(resolve, 5000));
+
+    // Отправляем в n8n
+    await this.sendToN8n({
+      phone: normalizedPhone,
+      wa_id: waId,
+      message: message.body,
+      lead_id: leadId,
+      amocrm_id: amocrmId,
+      direction: 'incoming',
+      contact_name: contact.name || contact.pushname || normalizedPhone,
+      timestamp: new Date().toISOString()
+    });
+
+    
+
+  } catch (error) {
+    console.error('Error handling message:', error);
   }
+}
 
   async sendMessage(waId, message, leadId = null, aiAgent = null) {
     if (!this.isReady) {
@@ -156,7 +162,7 @@ class WhatsAppService {
       const formattedNumber = this.formatPhoneNumber(waId);
       
       await this.sendTyping(formattedNumber);
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await new Promise(resolve => setTimeout(resolve, 5000));
 
       const sentMessage = await this.client.sendMessage(formattedNumber, message);
       console.log(`✅ Message sent to ${formattedNumber}`);
