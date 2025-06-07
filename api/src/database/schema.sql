@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS chat_history (
     phone VARCHAR(20) NOT NULL,
     message TEXT NOT NULL,
     direction VARCHAR(10) NOT NULL CHECK (direction IN ('incoming', 'outgoing')),
-    ai_agent VARCHAR(20),
+    ai_agent VARCHAR(20), 
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

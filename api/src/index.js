@@ -3,7 +3,6 @@ const cors = require('cors');
 const helmet = require('helmet');
 const db = require('./database/connection');
 const whatsappRouter = require('./whatsapp/routes');
-const amocrmRouter = require('./amocrm/routes');
 const whatsappService = require('./whatsapp/service');
 
 const app = express();
@@ -22,7 +21,6 @@ app.use((req, res, next) => {
 
 // Routes
 app.use('/whatsapp', whatsappRouter);
-app.use('/amocrm', amocrmRouter);
 
 // Инициализация БД при старте
 app.post('/init-db', async (req, res) => {
@@ -56,76 +54,6 @@ app.get('/health', async (req, res) => {
   }
 });
 
-// Получить историю чата
-app.get('/chat/:leadId', async (req, res) => {
-  try {
-    const { leadId } = req.params;
-    const result = await db.query(
-      `SELECT * FROM chat_history 
-       WHERE lead_id = $1 
-       ORDER BY created_at DESC 
-       LIMIT 50`,
-      [leadId]
-    );
-    res.json(result.rows);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Получить информацию о лиде
-app.get('/lead/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const leadResult = await db.query(
-      'SELECT * FROM leads WHERE id = $1 OR lead_id = $1',
-      [id]
-    );
-    
-    if (leadResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Lead not found' });
-    }
-    
-    const lead = leadResult.rows[0];
-    
-    // Получаем последние сообщения
-    const messagesResult = await db.query(
-      `SELECT * FROM chat_history 
-       WHERE lead_id = $1 
-       ORDER BY created_at DESC 
-       LIMIT 10`,
-      [lead.id]
-    );
-    
-    lead.recent_messages = messagesResult.rows;
-    res.json(lead);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Обновить классификацию лида
-app.post('/lead/:id/classify', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { classification, company_size, budget_range, needs } = req.body;
-    
-    await db.query(
-      `UPDATE leads 
-       SET classification = $1, 
-           company_size = $2, 
-           budget_range = $3,
-           needs = $4,
-           updated_at = CURRENT_TIMESTAMP
-       WHERE id = $5`,
-      [classification, company_size, budget_range, needs, id]
-    );
-    
-    res.json({ success: true });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
 
 // Статистика
 app.get('/stats', async (req, res) => {
@@ -189,11 +117,7 @@ async function startServer() {
       console.log('📍 Available endpoints:');
       console.log('  GET  /health');
       console.log('  GET  /stats');
-      console.log('  GET  /lead/:id');
-      console.log('  GET  /chat/:leadId');
-      console.log('  POST /lead/:id/classify');
       console.log('  POST /whatsapp/send');
-      console.log('  POST /amocrm/sync\n');
     });
   } catch (error) {
     console.error('Failed to start server:', error);

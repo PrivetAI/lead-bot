@@ -92,12 +92,10 @@ class WhatsAppService {
       if (chat.isGroup) return;
 
       const contact = await message.getContact();
-      // Получаем чистый номер без @c.us
       const phoneNumber = contact.id.user || contact.number || message.from.split('@')[0];
 
       console.log('📩 Message from:', phoneNumber, ':', message.body);
 
-      // Проверяем лида по номеру телефона
       let leadResult;
       try {
         leadResult = await db.query(
@@ -114,7 +112,6 @@ class WhatsAppService {
         leadId = leadResult.rows[0].id;
       }
 
-      // Сохраняем сообщение в БД
       try {
         await db.query(
           `INSERT INTO chat_history (lead_id, phone, message, direction) 
@@ -126,7 +123,6 @@ class WhatsAppService {
         console.error('Error saving to DB:', dbError);
       }
 
-      // Отправляем в n8n
       await this.sendToN8n({
         phone: phoneNumber,
         message: message.body,
@@ -143,52 +139,69 @@ class WhatsAppService {
     }
   }
 
-  async sendMessage(waId, message, leadId = null) {
-    if (!this.isReady) {
-      throw new Error('WhatsApp not ready');
-    }
+async sendMessage(waId, message, leadId = null) {
+  if (!this.isReady) {
+    throw new Error('WhatsApp not ready');
+  }
 
+  try {
+    const formattedNumber = this.formatPhoneNumber(waId);
+    
+    await this.sendTyping(formattedNumber);
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    const sentMessage = await this.client.sendMessage(formattedNumber, message);
+    console.log(`✅ Message sent to ${formattedNumber}`);
+
+    const phoneNumber = formattedNumber.replace('@c.us', '');
+    
     try {
-      // Форматируем номер
-      const formattedNumber = this.formatPhoneNumber(waId);
+      let dbLeadId = null;
       
-      await this.sendTyping(formattedNumber);
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      const sentMessage = await this.client.sendMessage(formattedNumber, message);
-      console.log(`✅ Message sent to ${formattedNumber}`);
-
-      // Сохраняем в БД - извлекаем чистый номер без @c.us
-      const phoneNumber = formattedNumber.replace('@c.us', '');
-      
-      try {
-        // Если leadId не передан, пытаемся найти его по номеру
-        if (!leadId) {
-          const leadResult = await db.query(
-            'SELECT id FROM leads WHERE phone = $1 OR phone = $2',
-            [phoneNumber, '+' + phoneNumber]
-          );
+      if (!leadId) {
+        const leadResult = await db.query(
+          'SELECT id FROM leads WHERE phone = $1 OR phone = $2',
+          [phoneNumber, '+' + phoneNumber]
+        );
+        if (leadResult.rows.length > 0) {
+          dbLeadId = leadResult.rows[0].id;
+        }
+      } else {
+        // Проверяем как внутренний id
+        let leadResult = await db.query('SELECT id FROM leads WHERE id = $1', [leadId]);
+        
+        if (leadResult.rows.length > 0) {
+          dbLeadId = leadId;
+        } else {
+          // Проверяем как внешний lead_id
+          leadResult = await db.query('SELECT id FROM leads WHERE lead_id = $1', [leadId]);
           if (leadResult.rows.length > 0) {
-            leadId = leadResult.rows[0].id;
+            dbLeadId = leadResult.rows[0].id;
           }
         }
+      }
 
+      if (dbLeadId) {
         await db.query(
           `INSERT INTO chat_history (lead_id, phone, message, direction) 
            VALUES ($1, $2, $3, $4)`,
-          [leadId, phoneNumber, message, 'outgoing']
+          [dbLeadId, phoneNumber, message, 'outgoing']
         );
         console.log('💾 Outgoing message saved to DB');
-      } catch (dbError) {
-        console.error('Error saving outgoing message to DB:', dbError);
+      } else {
+        console.warn(`⚠️ Lead not found for phone ${phoneNumber}, leadId ${leadId}. Message not saved to chat_history.`);
       }
 
-      return { success: true, messageId: sentMessage.id };
-    } catch (error) {
-      console.error('Send error:', error);
-      throw error;
+    } catch (dbError) {
+      console.error('Error saving outgoing message to DB:', dbError);
     }
+
+    return { success: true, messageId: sentMessage.id };
+  } catch (error) {
+    console.error('Send error:', error);
+    throw error;
   }
+}
 
   async sendToN8n(data) {
     try {
@@ -227,18 +240,13 @@ class WhatsAppService {
   }
 
   formatPhoneNumber(phoneNumber) {
-    // Удаляем все нецифровые символы кроме +
     let cleaned = String(phoneNumber).replace(/[^\d+]/g, '');
     
-    // Если номер уже в формате @c.us, возвращаем как есть
     if (String(phoneNumber).includes('@c.us')) {
       return String(phoneNumber);
     }
     
-    // Удаляем + для формата WhatsApp
     cleaned = cleaned.replace(/^\+/, '');
-    
-    // Добавляем @c.us
     return cleaned + '@c.us';
   }
 
