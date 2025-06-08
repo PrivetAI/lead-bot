@@ -1,13 +1,16 @@
+// api/src/whatsapp/service.js
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const axios = require('axios');
 const db = require('../database/connection');
 const qrcodeTerminal = require('qrcode-terminal');
+const HumanBehaviorSimulator = require('./humanBehavior');
 
 class WhatsAppService {
   constructor() {
     this.client = null;
     this.isReady = false;
     this.qrCode = null;
+    this.humanSimulator = new HumanBehaviorSimulator();
   }
 
   async initialize() {
@@ -84,74 +87,89 @@ class WhatsAppService {
     }
   }
 
-// Исправленный метод поиска лида с нормализацией номера
-async handleIncomingMessage(message) {
-  try {
-    if (message.isStatus || message.broadcast) return;
-
-    const chat = await message.getChat();
-    if (chat.isGroup) return;
-
-    const contact = await message.getContact();
-    console.log('message from', contact.id.user, contact.number, message.from.split('@')[0])
-    const phoneNumber = contact.id.user || contact.number || message.from.split('@')[0];
-    const waId = message.from;
-
-    console.log('📩 Message from:', phoneNumber, ':', message.body);
-
-    const normalizedPhone = phoneNumber.replace(/^\+/, '');
-
-    let leadResult;
+  async handleIncomingMessage(message) {
     try {
-      leadResult = await db.query(
-        'SELECT id, amocrm_id FROM leads WHERE phone = $1 OR wa_id = $2',
-        [normalizedPhone, waId]
-      );
+      if (message.isStatus || message.broadcast) return;
+
+      const chat = await message.getChat();
+      if (chat.isGroup) return;
+
+      const contact = await message.getContact();
+      const phoneNumber = contact.id.user || contact.number || message.from.split('@')[0];
+      const waId = message.from;
+
+      console.log('📩 Message from:', phoneNumber, ':', message.body);
+
+      // Отправляем статус "онлайн"
+
+      const normalizedPhone = phoneNumber.replace(/^\+/, '');
+      await this.sendPresenceOnline();
+
+
+      // ВРЕМЕННО: Сразу отправляем seen для тестирования
+      try {
+        await this.client.sendReadReceipt(message.from);
+        console.log('✅ Sent seen immediately');
+      } catch (e) {
+        console.error('❌ sendSeen failed:', e);
+      }
+      // Симулируем человеческое поведение для отметки "просмотрено"
+      // await this.humanSimulator.simulateMessageReading(waId, async () => {
+      //   try {
+      //     await chat.sendSeen();
+      //     console.log('✅ Sent seen');
+      //   } catch (e) {
+      //     console.error('❌ sendSeen failed:', e);
+      //   }
+      // });
+
+      // Работаем с данными
+      let leadResult;
+      try {
+        leadResult = await db.query(
+          'SELECT id, amocrm_id FROM leads WHERE phone = $1 OR wa_id = $2',
+          [normalizedPhone, waId]
+        );
+      } catch (error) {
+        console.error('Error querying lead:', error.message);
+        leadResult = { rows: [] };
+      }
+
+      let leadId = null;
+      let amocrmId = null;
+      if (leadResult.rows.length > 0) {
+        leadId = leadResult.rows[0].id;
+        amocrmId = leadResult.rows[0].amocrm_id;
+      }
+
+      // Сохраняем сообщение в БД
+      try {
+        await db.query(
+          `INSERT INTO chat_history (lead_id, phone, message, direction) 
+           VALUES ($1, $2, $3, $4)`,
+          [leadId, normalizedPhone, message.body, 'incoming']
+        );
+        console.log('💾 Message saved to DB');
+      } catch (dbError) {
+        console.error('Error saving to DB:', dbError);
+      }
+
+      // Отправляем в n8n
+      await this.sendToN8n({
+        phone: normalizedPhone,
+        wa_id: waId,
+        message: message.body,
+        lead_id: leadId,
+        amocrm_id: amocrmId,
+        direction: 'incoming',
+        contact_name: contact.name || contact.pushname || normalizedPhone,
+        timestamp: new Date().toISOString()
+      });
+
     } catch (error) {
-      console.error('Error querying lead:', error.message);
-      leadResult = { rows: [] };
+      console.error('Error handling message:', error);
     }
-
-    let leadId = null;
-    let amocrmId = null;
-    if (leadResult.rows.length > 0) {
-      leadId = leadResult.rows[0].id;
-      amocrmId = leadResult.rows[0].amocrm_id;
-    }
-
-    // Сохраняем сообщение в БД
-    try {
-      await db.query(
-        `INSERT INTO chat_history (lead_id, phone, message, direction) 
-         VALUES ($1, $2, $3, $4)`,
-        [leadId, normalizedPhone, message.body, 'incoming']
-      );
-      console.log('💾 Message saved to DB');
-    } catch (dbError) {
-      console.error('Error saving to DB:', dbError);
-    }
-    await new Promise(resolve => setTimeout(resolve, 5000));
-    await this.sendSeen(message.from);
-    await new Promise(resolve => setTimeout(resolve, 5000));
-
-    // Отправляем в n8n
-    await this.sendToN8n({
-      phone: normalizedPhone,
-      wa_id: waId,
-      message: message.body,
-      lead_id: leadId,
-      amocrm_id: amocrmId,
-      direction: 'incoming',
-      contact_name: contact.name || contact.pushname || normalizedPhone,
-      timestamp: new Date().toISOString()
-    });
-
-    
-
-  } catch (error) {
-    console.error('Error handling message:', error);
   }
-}
 
   async sendMessage(waId, message, leadId = null, aiAgent = null) {
     if (!this.isReady) {
@@ -161,60 +179,74 @@ async handleIncomingMessage(message) {
     try {
       const formattedNumber = this.formatPhoneNumber(waId);
       
-      await this.sendTyping(formattedNumber);
-      await new Promise(resolve => setTimeout(resolve, 5000));
-
-      const sentMessage = await this.client.sendMessage(formattedNumber, message);
+      // Отправляем статус "онлайн"
+      await this.sendPresenceOnline();
+      
+      // Выполняем человеческое поведение
+      const sentMessage = await this.humanSimulator.simulateMessageSending(
+        '', // Пустая строка вместо последнего сообщения
+        message,
+        {
+          sendTyping: async () => await this.sendTyping(formattedNumber),
+          sendMessage: async () => await this.client.sendMessage(formattedNumber, message)
+        }
+      );
+      
       console.log(`✅ Message sent to ${formattedNumber}`);
-
-      const phoneNumber = formattedNumber.replace('@c.us', '');
       
       // Сохраняем в БД
-      try {
-        let dbLeadId = null;
-        
-        if (!leadId) {
-          const leadResult = await db.query(
-            'SELECT id FROM leads WHERE phone = $1 OR phone = $2 OR wa_id = $3',
-            [phoneNumber, '+' + phoneNumber, formattedNumber]
-          );
-          if (leadResult.rows.length > 0) {
-            dbLeadId = leadResult.rows[0].id;
-          }
-        } else {
-          // Проверяем как внутренний id
-          let leadResult = await db.query('SELECT id FROM leads WHERE id = $1', [leadId]);
-          
-          if (leadResult.rows.length > 0) {
-            dbLeadId = leadId;
-          } else {
-            // Проверяем как amocrm_id
-            leadResult = await db.query('SELECT id FROM leads WHERE amocrm_id = $1', [leadId]);
-            if (leadResult.rows.length > 0) {
-              dbLeadId = leadResult.rows[0].id;
-            }
-          }
-        }
-
-        if (dbLeadId) {
-          await db.query(
-            `INSERT INTO chat_history (lead_id, phone, message, direction, ai_agent) 
-             VALUES ($1, $2, $3, $4, $5)`,
-            [dbLeadId, phoneNumber, message, 'outgoing', aiAgent]
-          );
-          console.log('💾 Outgoing message saved to DB');
-        } else {
-          console.warn(`⚠️ Lead not found for phone ${phoneNumber}, leadId ${leadId}`);
-        }
-
-      } catch (dbError) {
-        console.error('Error saving outgoing message to DB:', dbError);
-      }
-
+      await this.saveOutgoingMessage(formattedNumber, message, leadId, aiAgent);
+      
       return { success: true, messageId: sentMessage.id };
+
     } catch (error) {
       console.error('Send error:', error);
       throw error;
+    }
+  }
+
+  async saveOutgoingMessage(formattedNumber, message, leadId, aiAgent) {
+    const phoneNumber = formattedNumber.replace('@c.us', '');
+    
+    try {
+      let dbLeadId = null;
+      
+      if (!leadId) {
+        const leadResult = await db.query(
+          'SELECT id FROM leads WHERE phone = $1 OR phone = $2 OR wa_id = $3',
+          [phoneNumber, '+' + phoneNumber, formattedNumber]
+        );
+        if (leadResult.rows.length > 0) {
+          dbLeadId = leadResult.rows[0].id;
+        }
+      } else {
+        // Проверяем как внутренний id
+        let leadResult = await db.query('SELECT id FROM leads WHERE id = $1', [leadId]);
+        
+        if (leadResult.rows.length > 0) {
+          dbLeadId = leadId;
+        } else {
+          // Проверяем как amocrm_id
+          leadResult = await db.query('SELECT id FROM leads WHERE amocrm_id = $1', [leadId]);
+          if (leadResult.rows.length > 0) {
+            dbLeadId = leadResult.rows[0].id;
+          }
+        }
+      }
+
+      if (dbLeadId) {
+        await db.query(
+          `INSERT INTO chat_history (lead_id, phone, message, direction, ai_agent) 
+           VALUES ($1, $2, $3, $4, $5)`,
+          [dbLeadId, phoneNumber, message, 'outgoing', aiAgent]
+        );
+        console.log('💾 Outgoing message saved to DB');
+      } else {
+        console.warn(`⚠️ Lead not found for phone ${phoneNumber}, leadId ${leadId}`);
+      }
+
+    } catch (dbError) {
+      console.error('Error saving outgoing message to DB:', dbError);
     }
   }
 
@@ -233,7 +265,37 @@ async handleIncomingMessage(message) {
 
   async sendWelcomeMessage(phoneNumber, message = '', leadId) {
     const formattedNumber = this.formatPhoneNumber(phoneNumber);
-    return await this.sendMessage(formattedNumber, message, leadId);
+    
+    if (!this.isReady) {
+      throw new Error('WhatsApp not ready');
+    }
+
+    try {
+      console.log('🎉 Отправка приветственного сообщения...');
+      
+      // Отправляем статус "онлайн"
+      await this.sendPresenceOnline();
+      
+      // Используем симулятор для приветственного сообщения
+      const sentMessage = await this.humanSimulator.simulateWelcomeMessage(
+        message,
+        {
+          sendTyping: async () => await this.sendTyping(formattedNumber),
+          sendMessage: async () => await this.client.sendMessage(formattedNumber, message)
+        }
+      );
+      
+      console.log(`✅ Welcome message sent to ${formattedNumber}`);
+      
+      // Сохраняем в БД
+      await this.saveOutgoingMessage(formattedNumber, message, leadId, null);
+      
+      return { success: true, messageId: sentMessage.id };
+      
+    } catch (error) {
+      console.error('Welcome message error:', error);
+      throw error;
+    }
   }
 
   async sendTyping(waId) {
@@ -245,12 +307,21 @@ async handleIncomingMessage(message) {
     }
   }
 
-  async sendSeen(waId) {
+  async sendPresenceOnline() {
     try {
-      const chat = await this.client.getChatById(waId);
-      await chat.sendSeen();
+      await this.client.sendPresenceAvailable();
+      console.log('👁️ Status: online');
     } catch (error) {
-      console.error('Error sending seen:', error);
+      console.error('❌ Failed to set presence:', error);
+    }
+  }
+
+  async sendPresenceOffline() {
+    try {
+      await this.client.sendPresenceUnavailable();
+      console.log('👁️ Status: offline');
+    } catch (error) {
+      console.error('❌ Failed to set offline presence:', error);
     }
   }
 
@@ -275,6 +346,7 @@ async handleIncomingMessage(message) {
 
   async destroy() {
     if (this.client) {
+      await this.sendPresenceOffline();
       await this.client.destroy();
       this.client = null;
       this.isReady = false;
