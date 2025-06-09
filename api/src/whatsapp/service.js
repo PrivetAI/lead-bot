@@ -22,14 +22,23 @@ class WhatsAppService {
           clientId: 'lead-bot',
           dataPath: './sessions'
         }),
+        webVersionCache: {
+          type: 'remote',
+          remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html',
+        },
         puppeteer: {
           headless: true,
           args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
-            '--disable-gpu'
-          ]
+            '--disable-gpu',
+            '--disable-web-security',
+            '--disable-features=IsolateOrigins',
+            '--disable-site-isolation-trials'
+          ],
+          // Для новых версий может понадобиться
+          defaultViewport: null
         }
       });
 
@@ -87,6 +96,72 @@ class WhatsAppService {
     }
   }
 
+async markAllMessagesInChatAsRead(chat) {
+  try {
+    const chatId = chat.id._serialized;
+    console.log(`🔍 Marking all messages as read in chat ${chatId}`);
+    console.log(`📊 Current unread count: ${chat.unreadCount}`);
+
+    if (chat.unreadCount === 0) {
+      console.log('✅ No unread messages');
+      return true;
+    }
+
+    // Отправляем seen через client
+    await this.client.sendSeen(chatId);
+    console.log('✅ client.sendSeen sent');
+
+    // Опционально: снимаем метку “непрочитано” на клиенте
+    if (typeof chat.markChatUnread === 'function') {
+      await chat.markChatUnread(false);
+      console.log('✅ Used chat.markChatUnread(false)');
+    }
+
+    // Ждём, пока сервер обработает статус
+    await new Promise(r => setTimeout(r, 300));
+
+    // Проверяем результат
+    const updatedChat = await this.client.getChatById(chatId);
+    console.log(`📊 Final unread count: ${updatedChat.unreadCount}`);
+
+    return updatedChat.unreadCount === 0;
+
+  } catch (error) {
+    console.error('❌ markAllMessagesInChatAsRead failed:', error);
+    return false;
+  }
+}
+
+// Метод для тестирования - отмечает все непрочитанные чаты
+async markAllChatsAsRead() {
+  try {
+    const chats = await this.client.getChats();
+    const unreadChats = chats.filter(chat => chat.unreadCount > 0);
+    
+    console.log(`📋 Found ${unreadChats.length} unread chats`);
+    
+    for (const chat of unreadChats) {
+      try {
+        console.log(`📖 Processing chat: ${chat.name || chat.id.user} (${chat.unreadCount} unread)`);
+        
+        await this.client.openChat(chat.id._serialized);
+        await new Promise(resolve => setTimeout(resolve, 200));
+        await chat.sendSeen();
+        
+        console.log(`✅ Marked as read: ${chat.name || chat.id.user}`);
+        
+      } catch (chatError) {
+        console.error(`❌ Failed for chat ${chat.id.user}:`, chatError.message);
+      }
+    }
+    
+    return true;
+    
+  } catch (error) {
+    console.error('❌ markAllChatsAsRead failed:', error);
+    return false;
+  }
+}
   async handleIncomingMessage(message) {
     try {
       if (message.isStatus || message.broadcast) return;
@@ -100,28 +175,32 @@ class WhatsAppService {
 
       console.log('📩 Message from:', phoneNumber, ':', message.body);
 
-      // Отправляем статус "онлайн"
-
-      const normalizedPhone = phoneNumber.replace(/^\+/, '');
       await this.sendPresenceOnline();
 
+      const normalizedPhone = phoneNumber.replace(/^\+/, '');
 
-      // ВРЕМЕННО: Сразу отправляем seen для тестирования
-      try {
-        await this.client.sendReadReceipt(message.from);
-        console.log('✅ Sent seen immediately');
-      } catch (e) {
-        console.error('❌ sendSeen failed:', e);
-      }
-      // Симулируем человеческое поведение для отметки "просмотрено"
-      // await this.humanSimulator.simulateMessageReading(waId, async () => {
-      //   try {
-      //     await chat.sendSeen();
-      //     console.log('✅ Sent seen');
-      //   } catch (e) {
-      //     console.error('❌ sendSeen failed:', e);
-      //   }
-      // });
+      await this.humanSimulator.simulateMessageReading(waId, async () => {
+        try {
+          const result = await this.markAllChatsAsRead();
+          if (result) {
+            console.log('✅ Message successfully marked as read');
+          } else {  
+            console.log('⚠️ Failed to mark message as read, but continuing...');
+          }
+          const resultik = await this.markAllMessagesInChatAsRead(chat)
+   if (resultik) {
+            console.log('✅ Message successfullymarkAllMessagesInChatAsRead');
+          } else {
+            console.log('⚠️ Failed to mark message as read, but continuing...');
+          }
+          // Проверяем результат
+          const updatedChat = await this.client.getChatById(message.from);
+          console.log('📊 Final unread count:', updatedChat.unreadCount);
+
+        } catch (error) {
+          console.error('❌ Failed to mark as read:', error);
+        }
+      }, message.body);
 
       // Работаем с данными
       let leadResult;
@@ -178,25 +257,24 @@ class WhatsAppService {
 
     try {
       const formattedNumber = this.formatPhoneNumber(waId);
-      
+
       // Отправляем статус "онлайн"
       await this.sendPresenceOnline();
-      
+
       // Выполняем человеческое поведение
       const sentMessage = await this.humanSimulator.simulateMessageSending(
-        '', // Пустая строка вместо последнего сообщения
         message,
         {
           sendTyping: async () => await this.sendTyping(formattedNumber),
           sendMessage: async () => await this.client.sendMessage(formattedNumber, message)
         }
       );
-      
+
       console.log(`✅ Message sent to ${formattedNumber}`);
-      
+
       // Сохраняем в БД
       await this.saveOutgoingMessage(formattedNumber, message, leadId, aiAgent);
-      
+
       return { success: true, messageId: sentMessage.id };
 
     } catch (error) {
@@ -207,10 +285,10 @@ class WhatsAppService {
 
   async saveOutgoingMessage(formattedNumber, message, leadId, aiAgent) {
     const phoneNumber = formattedNumber.replace('@c.us', '');
-    
+
     try {
       let dbLeadId = null;
-      
+
       if (!leadId) {
         const leadResult = await db.query(
           'SELECT id FROM leads WHERE phone = $1 OR phone = $2 OR wa_id = $3',
@@ -222,7 +300,7 @@ class WhatsAppService {
       } else {
         // Проверяем как внутренний id
         let leadResult = await db.query('SELECT id FROM leads WHERE id = $1', [leadId]);
-        
+
         if (leadResult.rows.length > 0) {
           dbLeadId = leadId;
         } else {
@@ -265,33 +343,33 @@ class WhatsAppService {
 
   async sendWelcomeMessage(phoneNumber, message = '', leadId) {
     const formattedNumber = this.formatPhoneNumber(phoneNumber);
-    
+
     if (!this.isReady) {
       throw new Error('WhatsApp not ready');
     }
 
     try {
       console.log('🎉 Отправка приветственного сообщения...');
-      
+
       // Отправляем статус "онлайн"
       await this.sendPresenceOnline();
-      
+
       // Используем симулятор для приветственного сообщения
-      const sentMessage = await this.humanSimulator.simulateWelcomeMessage(
+      const sentMessage = await this.humanSimulator.simulateMessageSending(
         message,
         {
           sendTyping: async () => await this.sendTyping(formattedNumber),
           sendMessage: async () => await this.client.sendMessage(formattedNumber, message)
         }
       );
-      
+
       console.log(`✅ Welcome message sent to ${formattedNumber}`);
-      
+
       // Сохраняем в БД
       await this.saveOutgoingMessage(formattedNumber, message, leadId, null);
-      
+
       return { success: true, messageId: sentMessage.id };
-      
+
     } catch (error) {
       console.error('Welcome message error:', error);
       throw error;
@@ -327,11 +405,11 @@ class WhatsAppService {
 
   formatPhoneNumber(phoneNumber) {
     let cleaned = String(phoneNumber).replace(/[^\d+]/g, '');
-    
+
     if (String(phoneNumber).includes('@c.us')) {
       return String(phoneNumber);
     }
-    
+
     cleaned = cleaned.replace(/^\+/, '');
     return cleaned + '@c.us';
   }
@@ -343,6 +421,8 @@ class WhatsAppService {
       qrCode: this.qrCode
     };
   }
+
+
 
   async destroy() {
     if (this.client) {

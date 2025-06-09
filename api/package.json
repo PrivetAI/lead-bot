@@ -31,7 +31,7 @@
     "pg": "^8.16.0",
     "qrcode-terminal": "^0.12.0",
     "rate-limiter-flexible": "^4.0.1",
-    "whatsapp-web.js": "^1.22.2"
+    "whatsapp-web.js": "^1.30.0"
   },
   "devDependencies": {
     "eslint": "^8.55.0",
@@ -44,16 +44,6 @@
     "node": ">=16.0.0",
     "npm": ">=8.0.0"
   },
-  "keywords": [
-    "whatsapp",
-    "automation",
-    "sales",
-    "ai",
-    "bot",
-    "n8n",
-    "crm",
-    "leads"
-  ],
   "author": "Your Name",
   "license": "MIT"
 }
