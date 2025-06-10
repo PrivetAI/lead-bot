@@ -21,11 +21,9 @@ class WhatsAppService {
       console.log('🧹 Starting cleanup...');
       const { exec } = require('child_process');
       
-      // Kill all chrome/chromium processes more aggressively
       const killCommands = [
         'pkill -9 -f chrome',
         'pkill -9 -f chromium',
-        'pkill -9 -f "Chromium"',
         'pkill -9 -f puppeteer'
       ];
       
@@ -37,56 +35,9 @@ class WhatsAppService {
         } catch (err) {}
       }
       
-      // Wait longer for processes to terminate
       await new Promise(r => setTimeout(r, 3000));
       
-      // Clean up lock files and session directories
-      const sessionPath = '/app/sessions';
-      const lockFiles = [
-        path.join(sessionPath, 'session-lead-bot', 'SingletonLock'),
-        path.join(sessionPath, 'session-lead-bot', 'SingletonSocket'),
-        path.join(sessionPath, 'session-lead-bot', 'SingletonCookie'),
-        '/tmp/chrome-user-data/SingletonLock',
-        '/tmp/chrome-user-data/SingletonSocket', 
-        '/tmp/chrome-user-data/SingletonCookie'
-      ];
-      
-      for (const lockFile of lockFiles) {
-        try {
-          if (fs.existsSync(lockFile)) {
-            fs.unlinkSync(lockFile);
-            console.log(`🗑️ Removed: ${lockFile}`);
-          }
-        } catch (err) {
-          console.log(`⚠️ Could not remove ${lockFile}:`, err.message);
-        }
-      }
-
-      // Clean up temporary directories
-      const tmpDirs = [
-        '/tmp/chrome-user-data', 
-        '/tmp/chrome-data-path', 
-        '/tmp/wa-sessions',
-        '/tmp/chrome-*'
-      ];
-      
-      for (const dir of tmpDirs) {
-        try {
-          if (dir.includes('*')) {
-            // Handle wildcard patterns
-            const { exec } = require('child_process');
-            exec(`rm -rf ${dir}`, () => {});
-          } else if (fs.existsSync(dir)) {
-            fs.rmSync(dir, { recursive: true, force: true });
-            console.log(`🗑️ Removed directory: ${dir}`);
-          }
-        } catch (err) {
-          console.log(`⚠️ Could not remove ${dir}:`, err.message);
-        }
-      }
-      
       console.log('✅ Cleanup completed');
-      
     } catch (error) {
       console.error('❌ Cleanup error:', error.message);
     }
@@ -98,12 +49,14 @@ class WhatsAppService {
     await this.cleanupSessions();
 
     const sessionPath = path.resolve(__dirname, '../../sessions');
-    const containerHash = Math.random().toString(36).substring(7);
-    const userDataDir = `/tmp/chrome-${containerHash}`;
-
-    // Ensure session directory exists
+    
+    // Ensure session directory exists with proper permissions
     if (!fs.existsSync(sessionPath)) {
-      fs.mkdirSync(sessionPath, { recursive: true });
+      try {
+        fs.mkdirSync(sessionPath, { recursive: true, mode: 0o777 });
+      } catch (error) {
+        console.error('Failed to create sessions directory:', error);
+      }
     }
 
     this.client = new Client({
@@ -118,36 +71,10 @@ class WhatsAppService {
           '--disable-setuid-sandbox',
           '--disable-dev-shm-usage',
           '--disable-gpu',
-          '--disable-extensions',
-          '--disable-background-timer-throttling',
-          '--disable-backgrounding-occluded-windows',
-          '--disable-renderer-backgrounding',
-          '--disable-features=TranslateUI',
-          '--disable-default-apps',
-          '--no-first-run',
-          '--no-default-browser-check',
           '--disable-web-security',
-          '--disable-features=VizDisplayCompositor',
-          '--disable-crash-reporter',
-          '--disable-breakpad',
-          '--disable-logging',
-          '--disable-in-process-stack-traces',
-          '--disable-hang-monitor',
-          '--disable-prompt-on-repost',
-          '--disable-client-side-phishing-detection',
-          '--disable-component-extensions-with-background-pages',
-          '--disable-ipc-flooding-protection',
+          '--disable-features=IsolateOrigins,site-per-process',
           '--single-process',
-          '--no-zygote',
-          '--disable-background-networking',
-          '--disable-background-timer-throttling',
-          '--disable-sync',
-          '--disable-translate',
-          '--hide-scrollbars',
-          '--mute-audio',
-          '--disable-features=site-per-process',
-          `--user-data-dir=${userDataDir}`,
-          `--profile-directory=Profile-${containerHash}`
+          '--no-zygote'
         ],
         timeout: 90000,
         executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium'
@@ -160,9 +87,6 @@ class WhatsAppService {
       await this.client.initialize();
     } catch (error) {
       console.error('❌ Failed to initialize WhatsApp client:', error.message);
-      // Try cleanup and retry once
-      await this.cleanupSessions();
-      await new Promise(r => setTimeout(r, 5000));
       throw error;
     }
   }
@@ -225,6 +149,9 @@ class WhatsAppService {
       const waId = message.from;
       console.log(`\n📩 Новое сообщение от ${waId}`);
 
+      // Mark as read immediately
+      await this.markMessagesAsRead(chat);
+
       this.messageBuffer.setCallback(waId, async (messages) => {
         await this.processMessageBatch(waId, messages);
       });
@@ -247,16 +174,9 @@ class WhatsAppService {
       console.log(`👤 От: ${phoneNumber}`);
       console.log(`📨 Сообщений: ${messages.length}`);
       
-      await this.client.sendPresenceAvailable();
-      
       const allTexts = messages.map(m => m.body);
       const combinedText = allTexts.join('\n');
       console.log(`💬 Объединенный текст:\n${combinedText}`);
-      
-      const totalReadingTime = combinedText.length / this.humanSimulator.readingSpeed * 1000;
-      await new Promise(r => setTimeout(r, Math.min(totalReadingTime, 5000)));
-      
-      await this.markChatAsRead(chat);
       
       let leadId = null;
       let amocrmId = null;
@@ -309,27 +229,14 @@ class WhatsAppService {
     }
   }
 
-  async markChatAsRead(chat) {
+  async markMessagesAsRead(chat) {
     try {
-      console.log(`\n🔍 === MARK AS READ ===`);
-      console.log(`📊 Unread: ${chat.unreadCount}`);
-
-      if (chat.unreadCount === 0) {
-        console.log('✅ Already read');
-        return true;
-      }
-
+      // В whatsapp-web.js v1.30.0 используется sendSeen() для отметки как прочитанное
       await chat.sendSeen();
-      await new Promise(r => setTimeout(r, 1000));
-
-      const updatedChat = await this.client.getChatById(chat.id._serialized);
-      const success = updatedChat.unreadCount === 0;
-      console.log(`📊 Result: ${updatedChat.unreadCount} unread ${success ? '✅' : '❌'}`);
-      
-      return success;
-
+      console.log('✅ Messages marked as read');
+      return true;
     } catch (error) {
-      console.error('❌ Mark as read failed:', error);
+      console.error('❌ Failed to mark as read:', error.message);
       return false;
     }
   }
@@ -344,12 +251,10 @@ class WhatsAppService {
       console.log(`\n📤 === SENDING MESSAGE ===`);
       console.log(`📱 To: ${formattedNumber}`);
 
-      await this.client.sendPresenceAvailable();
-
       const sentMessage = await this.humanSimulator.simulateMessageSending(
         message,
         {
-          sendTyping: async () => await this.sendTyping(formattedNumber),
+          sendTyping: async () => await this.sendTypingState(formattedNumber),
           sendMessage: async () => await this.client.sendMessage(formattedNumber, message)
         }
       );
@@ -362,6 +267,26 @@ class WhatsAppService {
     } catch (error) {
       console.error('❌ Send error:', error);
       throw error;
+    }
+  }
+
+  async sendTypingState(waId) {
+    try {
+      const chat = await this.client.getChatById(waId);
+      // В whatsapp-web.js v1.30.0 используется sendStateTyping()
+      await chat.sendStateTyping();
+      console.log('⌨️ Typing state sent');
+      
+      // Остановка typing через несколько секунд
+      setTimeout(async () => {
+        try {
+          await chat.clearState();
+        } catch (err) {
+          // Игнорируем ошибки очистки состояния
+        }
+      }, 5000);
+    } catch (error) {
+      console.error('❌ Typing state error:', error.message);
     }
   }
 
@@ -432,12 +357,10 @@ class WhatsAppService {
       console.log('\n🎉 === WELCOME MESSAGE ===');
       console.log(`📱 To: ${formattedNumber}`);
 
-      await this.client.sendPresenceAvailable();
-
       const sentMessage = await this.humanSimulator.simulateMessageSending(
         message,
         {
-          sendTyping: async () => await this.sendTyping(formattedNumber),
+          sendTyping: async () => await this.sendTypingState(formattedNumber),
           sendMessage: async () => await this.client.sendMessage(formattedNumber, message)
         }
       );
@@ -450,16 +373,6 @@ class WhatsAppService {
     } catch (error) {
       console.error('❌ Welcome message error:', error);
       throw error;
-    }
-  }
-
-  async sendTyping(waId) {
-    try {
-      const chat = await this.client.getChatById(waId);
-      await chat.sendStateTyping();
-      console.log('⌨️ Typing sent');
-    } catch (error) {
-      console.error('❌ Typing error:', error.message);
     }
   }
 
@@ -486,7 +399,6 @@ class WhatsAppService {
     try {
       console.log('🛑 Destroying WhatsApp client...');
       if (this.client) {
-        await this.client.sendPresenceUnavailable();
         await this.client.destroy();
         this.client = null;
         this.isReady = false;

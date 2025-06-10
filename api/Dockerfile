@@ -33,21 +33,18 @@ COPY . .
 COPY startup.sh /startup.sh
 RUN chmod +x /startup.sh
 
-# Use the existing node user (UID 1000) instead of creating a new one
-# The node:18-slim image already has a 'node' user with UID 1000
 RUN usermod -a -G audio,video node
 
-# Create directories and set ownership BEFORE switching to node user
+# Create directories with proper ownership
 RUN mkdir -p /app/sessions /app/logs /app/public /tmp/chrome-sessions /tmp/wa-sessions && \
-    chmod -R 755 /app/sessions /app/logs /app/public && \
-    chmod -R 777 /tmp/chrome-sessions /tmp/wa-sessions && \
-    chown -R node:node /app
+    chown -R node:node /app /tmp/chrome-sessions /tmp/wa-sessions && \
+    chmod -R 755 /app && \
+    chmod -R 777 /tmp/chrome-sessions /tmp/wa-sessions
 
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 ENV DISPLAY=:99
 
-# Switch to node user AFTER setting permissions
 USER node
 
 EXPOSE 3000
