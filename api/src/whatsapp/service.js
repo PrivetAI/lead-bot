@@ -1,9 +1,11 @@
-// api/src/whatsapp/service.js
+const path = require('path');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const axios = require('axios');
 const db = require('../database/connection');
 const qrcodeTerminal = require('qrcode-terminal');
 const HumanBehaviorSimulator = require('./humanBehavior');
+const MessageBuffer = require('./messageBuffer');
+const fs = require('fs');
 
 class WhatsAppService {
   constructor() {
@@ -11,43 +13,156 @@ class WhatsAppService {
     this.isReady = false;
     this.qrCode = null;
     this.humanSimulator = new HumanBehaviorSimulator();
-    this.processingChats = new Set(); // Для отслеживания обрабатываемых чатов
-    this.messageQueue = new Map(); // Очередь сообщений по чатам
+    this.messageBuffer = new MessageBuffer();
+  }
+
+  async cleanupSessions() {
+    try {
+      console.log('🧹 Starting cleanup...');
+      const { exec } = require('child_process');
+      
+      // Kill all chrome/chromium processes more aggressively
+      const killCommands = [
+        'pkill -9 -f chrome',
+        'pkill -9 -f chromium',
+        'pkill -9 -f "Chromium"',
+        'pkill -9 -f puppeteer'
+      ];
+      
+      for (const cmd of killCommands) {
+        try {
+          await new Promise((resolve) => {
+            exec(cmd, () => resolve());
+          });
+        } catch (err) {}
+      }
+      
+      // Wait longer for processes to terminate
+      await new Promise(r => setTimeout(r, 3000));
+      
+      // Clean up lock files and session directories
+      const sessionPath = '/app/sessions';
+      const lockFiles = [
+        path.join(sessionPath, 'session-lead-bot', 'SingletonLock'),
+        path.join(sessionPath, 'session-lead-bot', 'SingletonSocket'),
+        path.join(sessionPath, 'session-lead-bot', 'SingletonCookie'),
+        '/tmp/chrome-user-data/SingletonLock',
+        '/tmp/chrome-user-data/SingletonSocket', 
+        '/tmp/chrome-user-data/SingletonCookie'
+      ];
+      
+      for (const lockFile of lockFiles) {
+        try {
+          if (fs.existsSync(lockFile)) {
+            fs.unlinkSync(lockFile);
+            console.log(`🗑️ Removed: ${lockFile}`);
+          }
+        } catch (err) {
+          console.log(`⚠️ Could not remove ${lockFile}:`, err.message);
+        }
+      }
+
+      // Clean up temporary directories
+      const tmpDirs = [
+        '/tmp/chrome-user-data', 
+        '/tmp/chrome-data-path', 
+        '/tmp/wa-sessions',
+        '/tmp/chrome-*'
+      ];
+      
+      for (const dir of tmpDirs) {
+        try {
+          if (dir.includes('*')) {
+            // Handle wildcard patterns
+            const { exec } = require('child_process');
+            exec(`rm -rf ${dir}`, () => {});
+          } else if (fs.existsSync(dir)) {
+            fs.rmSync(dir, { recursive: true, force: true });
+            console.log(`🗑️ Removed directory: ${dir}`);
+          }
+        } catch (err) {
+          console.log(`⚠️ Could not remove ${dir}:`, err.message);
+        }
+      }
+      
+      console.log('✅ Cleanup completed');
+      
+    } catch (error) {
+      console.error('❌ Cleanup error:', error.message);
+    }
   }
 
   async initialize() {
+    console.log('Initializing WhatsApp client…');
+    
+    await this.cleanupSessions();
+
+    const sessionPath = path.resolve(__dirname, '../../sessions');
+    const containerHash = Math.random().toString(36).substring(7);
+    const userDataDir = `/tmp/chrome-${containerHash}`;
+
+    // Ensure session directory exists
+    if (!fs.existsSync(sessionPath)) {
+      fs.mkdirSync(sessionPath, { recursive: true });
+    }
+
+    this.client = new Client({
+      authStrategy: new LocalAuth({
+        clientId: 'lead-bot',
+        dataPath: sessionPath
+      }),
+      puppeteer: {
+        headless: true,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-gpu',
+          '--disable-extensions',
+          '--disable-background-timer-throttling',
+          '--disable-backgrounding-occluded-windows',
+          '--disable-renderer-backgrounding',
+          '--disable-features=TranslateUI',
+          '--disable-default-apps',
+          '--no-first-run',
+          '--no-default-browser-check',
+          '--disable-web-security',
+          '--disable-features=VizDisplayCompositor',
+          '--disable-crash-reporter',
+          '--disable-breakpad',
+          '--disable-logging',
+          '--disable-in-process-stack-traces',
+          '--disable-hang-monitor',
+          '--disable-prompt-on-repost',
+          '--disable-client-side-phishing-detection',
+          '--disable-component-extensions-with-background-pages',
+          '--disable-ipc-flooding-protection',
+          '--single-process',
+          '--no-zygote',
+          '--disable-background-networking',
+          '--disable-background-timer-throttling',
+          '--disable-sync',
+          '--disable-translate',
+          '--hide-scrollbars',
+          '--mute-audio',
+          '--disable-features=site-per-process',
+          `--user-data-dir=${userDataDir}`,
+          `--profile-directory=Profile-${containerHash}`
+        ],
+        timeout: 90000,
+        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium'
+      }
+    });
+
+    this.setupEventHandlers();
+    
     try {
-      console.log('Initializing WhatsApp client...');
-
-      this.client = new Client({
-        authStrategy: new LocalAuth({
-          clientId: 'lead-bot',
-          dataPath: './sessions'
-        }),
-        webVersionCache: {
-          type: 'remote',
-          remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html',
-        },
-        puppeteer: {
-          headless: true,
-          args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-gpu',
-            '--disable-web-security',
-            '--disable-features=IsolateOrigins',
-            '--disable-site-isolation-trials'
-          ],
-          defaultViewport: null
-        }
-      });
-
-      this.setupEventHandlers();
       await this.client.initialize();
-
     } catch (error) {
-      console.error('Failed to initialize WhatsApp:', error);
+      console.error('❌ Failed to initialize WhatsApp client:', error.message);
+      // Try cleanup and retry once
+      await this.cleanupSessions();
+      await new Promise(r => setTimeout(r, 5000));
       throw error;
     }
   }
@@ -87,298 +202,135 @@ class WhatsAppService {
 
   async reconnect() {
     try {
+      console.log('🔄 Attempting to reconnect...');
       if (this.client) {
         await this.client.destroy();
       }
+      await this.cleanupSessions();
+      await new Promise(r => setTimeout(r, 5000));
       await this.initialize();
     } catch (error) {
-      console.error('Reconnection failed:', error);
+      console.error('❌ Reconnection failed:', error.message);
       setTimeout(() => this.reconnect(), 30000);
-    }
-  }
-
-  // Метод для отметки ВСЕХ сообщений в чате как прочитанных
-  async markAllChatMessagesAsRead(chat) {
-    console.log('\n🔍 === MARK ALL CHAT MESSAGES AS READ ===');
-    console.log(`📱 Chat ID: ${chat.id._serialized}`);
-    
-    try {
-      // Получаем актуальное состояние чата
-      const freshChat = await this.client.getChatById(chat.id._serialized);
-      console.log(`📊 Total unread: ${freshChat.unreadCount}`);
-      
-      if (freshChat.unreadCount === 0) {
-        console.log('✅ Already all read');
-        return true;
-      }
-      
-      // Метод 1: Множественный sendSeen
-      console.log('📌 Multiple sendSeen...');
-      for (let i = 0; i < 5; i++) {
-        try {
-          await freshChat.sendSeen();
-          await new Promise(r => setTimeout(r, 500));
-        } catch (e) {
-          console.error(`❌ sendSeen ${i+1} failed:`, e.message);
-        }
-      }
-      
-      // Метод 2: Прямая манипуляция Store для всего чата
-      console.log('📌 Force clear all unread...');
-      try {
-        const page = this.client.pupPage;
-        if (page) {
-          await page.evaluate(async (chatId) => {
-            try {
-              const Store = window.Store;
-              if (!Store) return;
-              
-              const chat = Store.Chat.get(chatId);
-              if (!chat) return;
-              
-              // Сбрасываем все счетчики
-              chat.unreadCount = 0;
-              chat.hasUnread = false;
-              chat.markedUnread = false;
-              
-              // Получаем ВСЕ сообщения
-              const allMessages = chat.msgs.models;
-              console.log(`Found ${allMessages.length} messages in chat`);
-              
-              // Отмечаем ВСЕ как прочитанные
-              for (const msg of allMessages) {
-                if (msg && !msg.isSentByMe && msg.ack < 2) {
-                  msg.ack = 2;
-                }
-              }
-              
-              // Множественные вызовы для надежности
-              for (let i = 0; i < 3; i++) {
-                if (chat.sendSeen) await chat.sendSeen();
-                await new Promise(r => setTimeout(r, 200));
-              }
-              
-              // Обновляем статус чата
-              if (Store.ReadStatus && Store.ReadStatus.sendReadStatus) {
-                await Store.ReadStatus.sendReadStatus(chat);
-              }
-              
-              // Принудительное обновление UI
-              if (chat.forceUpdateUI) chat.forceUpdateUI();
-              
-            } catch (e) {
-              console.error('Store error:', e);
-            }
-          }, freshChat.id._serialized);
-          
-          console.log('✅ Force clear done');
-        }
-      } catch (e) {
-        console.error('❌ Page evaluate failed:', e.message);
-      }
-      
-      // Финальная проверка
-      await new Promise(r => setTimeout(r, 2000));
-      const finalChat = await this.client.getChatById(chat.id._serialized);
-      console.log(`📊 Final unread count: ${finalChat.unreadCount} ${finalChat.unreadCount === 0 ? '✅' : '❌'}`);
-      
-      return finalChat.unreadCount === 0;
-      
-    } catch (error) {
-      console.error('❌ markAllChatMessagesAsRead error:', error);
-      return false;
-    }
-  }
-
-
-
-  // Метод для отметки всех сообщений в чате
-  async markChatAsRead(chatId) {
-    console.log(`\n🔍 === MARK CHAT AS READ: ${chatId} ===`);
-    
-    try {
-      const chat = await this.client.getChatById(chatId);
-      console.log(`📊 Unread count: ${chat.unreadCount}`);
-      
-      if (chat.unreadCount === 0) {
-        console.log('✅ Already all read');
-        return true;
-      }
-
-      // Комбинированный подход
-      console.log('🔄 Applying combined approach...');
-      
-      // 1. Основной sendSeen
-      await chat.sendSeen();
-      await new Promise(r => setTimeout(r, 500));
-      
-      // 2. Client sendSeen с разными форматами ID
-      await this.client.sendSeen(chatId);
-      await new Promise(r => setTimeout(r, 500));
-      
-      // 3. Пробуем с chat.id._serialized
-      if (chat.id && chat.id._serialized) {
-        await this.client.sendSeen(chat.id._serialized);
-        await new Promise(r => setTimeout(r, 500));
-      }
-      
-      // 4. Проверка и принудительная отметка если нужно
-      const isRead = await this.verifyReadStatus(chatId);
-      if (!isRead) {
-        await this.forceMarkAsRead(chat);
-      }
-      
-      return await this.verifyReadStatus(chatId);
-      
-    } catch (error) {
-      console.error('❌ markChatAsRead failed:', error);
-      return false;
-    }
-  }
-
-  // Проверка статуса прочтения
-  async verifyReadStatus(chatId) {
-    try {
-      await new Promise(r => setTimeout(r, 1500));
-      const chat = await this.client.getChatById(chatId);
-      const isRead = chat.unreadCount === 0;
-      console.log(`📊 Verification: ${chat.unreadCount} unread ${isRead ? '✅' : '❌'}`);
-      return isRead;
-    } catch (e) {
-      console.error('❌ verifyReadStatus failed:', e.message);
-      return false;
     }
   }
 
   async handleIncomingMessage(message) {
     try {
-      if (message.isStatus || message.broadcast) return;
+      if (message.isStatus || message.broadcast || message.fromMe) return;
 
       const chat = await message.getChat();
       if (chat.isGroup) return;
 
       const waId = message.from;
-      
-      // Добавляем сообщение в очередь
-      if (!this.messageQueue.has(waId)) {
-        this.messageQueue.set(waId, []);
-      }
-      this.messageQueue.get(waId).push(message);
-      
-      // Если чат уже обрабатывается - выходим
-      if (this.processingChats.has(waId)) {
-        console.log(`⏳ Chat ${waId} already processing, message queued`);
-        return;
-      }
-      
-      // Начинаем обработку всех сообщений в очереди для этого чата
-      await this.processMessageQueue(waId);
-      
+      console.log(`\n📩 Новое сообщение от ${waId}`);
+
+      this.messageBuffer.setCallback(waId, async (messages) => {
+        await this.processMessageBatch(waId, messages);
+      });
+
+      this.messageBuffer.addMessage(waId, message);
+
     } catch (error) {
       console.error('❌ Error handling message:', error);
     }
   }
-  
-  async processMessageQueue(waId) {
-    // Помечаем чат как обрабатываемый
-    this.processingChats.add(waId);
-    
+
+  async processMessageBatch(waId, messages) {
     try {
-      while (this.messageQueue.has(waId) && this.messageQueue.get(waId).length > 0) {
-        const messages = this.messageQueue.get(waId);
-        const message = messages.shift(); // Берем первое сообщение из очереди
-        
-        if (!message) continue;
-        
-        console.log(`\n📦 Processing queued message (${messages.length} left in queue)`);
-        
-        // Обрабатываем сообщение
-        await this.processSingleMessage(message);
-        
-        // Небольшая пауза между сообщениями
-        if (messages.length > 0) {
-          await new Promise(r => setTimeout(r, 1000));
-        }
-      }
-      
-      // Удаляем пустую очередь
-      this.messageQueue.delete(waId);
-      
-    } catch (error) {
-      console.error('❌ Error processing message queue:', error);
-    } finally {
-      // Убираем чат из обрабатываемых
-      this.processingChats.delete(waId);
-    }
-  }
-  
-  async processSingleMessage(message) {
-    try {
-      const chat = await message.getChat();
-      const contact = await message.getContact();
-      const phoneNumber = contact.id.user || contact.number || message.from.split('@')[0];
-      const waId = message.from;
-
-      console.log('\n📩 === INCOMING MESSAGE ===');
-      console.log(`👤 From: ${phoneNumber}`);
-      console.log(`💬 Text: ${message.body}`);
-      console.log(`🆔 WA ID: ${waId}`);
-
-      await this.sendPresenceOnline();
-
+      const chat = await messages[0].getChat();
+      const contact = await messages[0].getContact();
+      const phoneNumber = contact.id.user || contact.number || waId.split('@')[0];
       const normalizedPhone = phoneNumber.replace(/^\+/, '');
-
-      // Симуляция чтения с новым методом
-      await this.humanSimulator.simulateMessageReading(waId, async () => {
-        // Отмечаем ВСЕ сообщения в чате как прочитанные
-        await this.markAllChatMessagesAsRead(chat);
-      }, message.body);
-
-      // Работаем с данными
-      let leadResult;
+      
+      console.log(`\n📦 === ОБРАБОТКА БАТЧА ===`);
+      console.log(`👤 От: ${phoneNumber}`);
+      console.log(`📨 Сообщений: ${messages.length}`);
+      
+      await this.client.sendPresenceAvailable();
+      
+      const allTexts = messages.map(m => m.body);
+      const combinedText = allTexts.join('\n');
+      console.log(`💬 Объединенный текст:\n${combinedText}`);
+      
+      const totalReadingTime = combinedText.length / this.humanSimulator.readingSpeed * 1000;
+      await new Promise(r => setTimeout(r, Math.min(totalReadingTime, 5000)));
+      
+      await this.markChatAsRead(chat);
+      
+      let leadId = null;
+      let amocrmId = null;
+      
       try {
-        leadResult = await db.query(
+        const leadResult = await db.query(
           'SELECT id, amocrm_id FROM leads WHERE phone = $1 OR wa_id = $2',
           [normalizedPhone, waId]
         );
+        
+        if (leadResult.rows.length > 0) {
+          leadId = leadResult.rows[0].id;
+          amocrmId = leadResult.rows[0].amocrm_id;
+        }
       } catch (error) {
         console.error('Error querying lead:', error.message);
-        leadResult = { rows: [] };
       }
-
-      let leadId = null;
-      let amocrmId = null;
-      if (leadResult.rows.length > 0) {
-        leadId = leadResult.rows[0].id;
-        amocrmId = leadResult.rows[0].amocrm_id;
+      
+      for (const msg of messages) {
+        try {
+          await db.query(
+            `INSERT INTO chat_history (lead_id, phone, message, direction) 
+             VALUES ($1, $2, $3, $4)`,
+            [leadId, normalizedPhone, msg.body, 'incoming']
+          );
+        } catch (dbError) {
+          console.error('Error saving message to DB:', dbError.message);
+        }
       }
-
-      // Сохраняем сообщение в БД
-      try {
-        await db.query(
-          `INSERT INTO chat_history (lead_id, phone, message, direction) 
-           VALUES ($1, $2, $3, $4)`,
-          [leadId, normalizedPhone, message.body, 'incoming']
-        );
-        console.log('💾 Message saved to DB');
-      } catch (dbError) {
-        console.error('Error saving to DB:', dbError);
-      }
-
-      // Отправляем в n8n
+      
+      console.log('💾 Сообщения сохранены в БД');
+      
       await this.sendToN8n({
         phone: normalizedPhone,
         wa_id: waId,
-        message: message.body,
+        messages: allTexts,
+        combined_text: combinedText,
+        message_count: messages.length,
         lead_id: leadId,
         amocrm_id: amocrmId,
         direction: 'incoming',
         contact_name: contact.name || contact.pushname || normalizedPhone,
         timestamp: new Date().toISOString()
       });
+      
+      console.log('📤 Отправлено в n8n для обработки AI');
+      
+    } catch (error) {
+      console.error('❌ Error processing message batch:', error);
+    }
+  }
+
+  async markChatAsRead(chat) {
+    try {
+      console.log(`\n🔍 === MARK AS READ ===`);
+      console.log(`📊 Unread: ${chat.unreadCount}`);
+
+      if (chat.unreadCount === 0) {
+        console.log('✅ Already read');
+        return true;
+      }
+
+      await chat.sendSeen();
+      await new Promise(r => setTimeout(r, 1000));
+
+      const updatedChat = await this.client.getChatById(chat.id._serialized);
+      const success = updatedChat.unreadCount === 0;
+      console.log(`📊 Result: ${updatedChat.unreadCount} unread ${success ? '✅' : '❌'}`);
+      
+      return success;
 
     } catch (error) {
-      console.error('❌ Error processing single message:', error);
+      console.error('❌ Mark as read failed:', error);
+      return false;
     }
   }
 
@@ -391,12 +343,9 @@ class WhatsAppService {
       const formattedNumber = this.formatPhoneNumber(waId);
       console.log(`\n📤 === SENDING MESSAGE ===`);
       console.log(`📱 To: ${formattedNumber}`);
-      console.log(`💬 Message length: ${message.length} chars`);
 
-      // Отправляем статус "онлайн"
-      await this.sendPresenceOnline();
+      await this.client.sendPresenceAvailable();
 
-      // Выполняем человеческое поведение
       const sentMessage = await this.humanSimulator.simulateMessageSending(
         message,
         {
@@ -406,8 +355,6 @@ class WhatsAppService {
       );
 
       console.log(`✅ Message sent successfully`);
-
-      // Сохраняем в БД
       await this.saveOutgoingMessage(formattedNumber, message, leadId, aiAgent);
 
       return { success: true, messageId: sentMessage.id };
@@ -433,13 +380,11 @@ class WhatsAppService {
           dbLeadId = leadResult.rows[0].id;
         }
       } else {
-        // Проверяем как внутренний id
         let leadResult = await db.query('SELECT id FROM leads WHERE id = $1', [leadId]);
 
         if (leadResult.rows.length > 0) {
           dbLeadId = leadId;
         } else {
-          // Проверяем как amocrm_id
           leadResult = await db.query('SELECT id FROM leads WHERE amocrm_id = $1', [leadId]);
           if (leadResult.rows.length > 0) {
             dbLeadId = leadResult.rows[0].id;
@@ -450,7 +395,7 @@ class WhatsAppService {
       if (dbLeadId) {
         await db.query(
           `INSERT INTO chat_history (lead_id, phone, message, direction, ai_agent) 
-           VALUES ($1, $2, $3, $4, $5)`,
+            VALUES ($1, $2, $3, $4, $5)`,
           [dbLeadId, phoneNumber, message, 'outgoing', aiAgent]
         );
         console.log('💾 Outgoing message saved to DB');
@@ -487,10 +432,8 @@ class WhatsAppService {
       console.log('\n🎉 === WELCOME MESSAGE ===');
       console.log(`📱 To: ${formattedNumber}`);
 
-      // Отправляем статус "онлайн"
-      await this.sendPresenceOnline();
+      await this.client.sendPresenceAvailable();
 
-      // Используем симулятор для приветственного сообщения
       const sentMessage = await this.humanSimulator.simulateMessageSending(
         message,
         {
@@ -500,8 +443,6 @@ class WhatsAppService {
       );
 
       console.log(`✅ Welcome message sent`);
-
-      // Сохраняем в БД
       await this.saveOutgoingMessage(formattedNumber, message, leadId, null);
 
       return { success: true, messageId: sentMessage.id };
@@ -516,27 +457,9 @@ class WhatsAppService {
     try {
       const chat = await this.client.getChatById(waId);
       await chat.sendStateTyping();
-      console.log('⌨️ Typing indicator sent');
+      console.log('⌨️ Typing sent');
     } catch (error) {
-      console.error('❌ Error sending typing:', error.message);
-    }
-  }
-
-  async sendPresenceOnline() {
-    try {
-      await this.client.sendPresenceAvailable();
-      console.log('👁️ Status: online');
-    } catch (error) {
-      console.error('❌ Failed to set presence:', error.message);
-    }
-  }
-
-  async sendPresenceOffline() {
-    try {
-      await this.client.sendPresenceUnavailable();
-      console.log('👁️ Status: offline');
-    } catch (error) {
-      console.error('❌ Failed to set offline presence:', error.message);
+      console.error('❌ Typing error:', error.message);
     }
   }
 
@@ -559,39 +482,19 @@ class WhatsAppService {
     };
   }
 
-  // Утилита для отметки всех непрочитанных чатов
-  async markAllUnreadChats() {
-    try {
-      console.log('\n🔍 === MARK ALL UNREAD CHATS ===');
-      const chats = await this.client.getChats();
-      const unreadChats = chats.filter(chat => chat.unreadCount > 0);
-      
-      console.log(`📋 Found ${unreadChats.length} unread chats`);
-      
-      let success = 0;
-      let failed = 0;
-      
-      for (const chat of unreadChats) {
-        const result = await this.markChatAsRead(chat.id._serialized);
-        if (result) success++;
-        else failed++;
-      }
-      
-      console.log(`\n📊 Results: ${success} success, ${failed} failed`);
-      return { success, failed };
-      
-    } catch (error) {
-      console.error('❌ markAllUnreadChats failed:', error);
-      return { success: 0, failed: 0 };
-    }
-  }
-
   async destroy() {
-    if (this.client) {
-      await this.sendPresenceOffline();
-      await this.client.destroy();
-      this.client = null;
-      this.isReady = false;
+    try {
+      console.log('🛑 Destroying WhatsApp client...');
+      if (this.client) {
+        await this.client.sendPresenceUnavailable();
+        await this.client.destroy();
+        this.client = null;
+        this.isReady = false;
+      }
+      await this.cleanupSessions();
+      console.log('✅ WhatsApp client destroyed');
+    } catch (error) {
+      console.error('❌ Error destroying client:', error.message);
     }
   }
 }
